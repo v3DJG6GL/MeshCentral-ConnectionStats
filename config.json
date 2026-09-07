@@ -1,7 +1,7 @@
 {
   "name": "Connection Stats",
   "shortName": "connectionstats",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "How long you were remoted into each device, split by Desktop, Terminal, Files and other connection types, per device or device group, at any zoom from an hour to a year. Everything on screen is exportable.",
   "hasAdminPanel": true,
   "homepage": "https://github.com/v3DJG6GL/MeshCentral-ConnectionStats",

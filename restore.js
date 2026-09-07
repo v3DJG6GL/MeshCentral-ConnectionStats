@@ -376,9 +376,11 @@ function importStream(kind, stream, name, onDoc, st) {
 function zipEntryWanted(fileName) {
     var base = path.posix.basename(fileName).toLowerCase();
     if (base == 'meshcentral-events.db') return true;
-    if (/-mongodump-.*\.archive(\.gz)?$/.test(base)) return true;
-    if (/^mysqldump-.*\.sql$/.test(base) || /^pgdump-.*\.sql$/.test(base)) return true;
-    if (/-sqlitedump-.*\.db3$/.test(base)) return true;
+    // MeshCentral before 1.1.34 (Nov 2024) wrote "mongodump-<date>.archive"; newer versions prefix the
+    // database name ("meshcentral-mongodump-<date>.archive"). Same for the SQLite copy.
+    if (/(^|-)mongodump-.*\.archive(\.gz)?$/.test(base)) return true;
+    if (/(^|-)mysqldump-.*\.sql(\.gz)?$/.test(base) || /(^|-)pgdump-.*\.sql(\.gz)?$/.test(base)) return true;
+    if (/(^|-)sqlitedump-.*\.db3$/.test(base)) return true;
     return false;
 }
 

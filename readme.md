@@ -51,7 +51,7 @@ MeshCentral itself only keeps relay events for 20 days (`settings.dbExpire.event
 | MeshCentral database | What the plugin reads from the backup |
 | --- | --- |
 | NeDB | `meshcentral-data/meshcentral-events.db` |
-| MongoDB | the `mongodump` archive at the root of the zip, plain or gzip; also a `mongoexport` JSON file |
+| MongoDB | the `mongodump` archive at the root of the zip (`*mongodump-*.archive`, with or without the database name in front, plain or gzip); also a `mongoexport` JSON file |
 | MariaDB, MySQL | the `mysqldump` or `mariadb-dump` file |
 | PostgreSQL | the `pg_dump` file |
 | SQLite | the database copy (`*-sqlitedump-*.db3`) |

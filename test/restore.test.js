@@ -60,6 +60,9 @@ test('sniff recognises the formats by content', () => {
     assert.equal(R.sniff(Buffer.from('hello')), 'unknown');
     assert.ok(R.zipEntryWanted('meshcentral-data/meshcentral-events.db'));
     assert.ok(R.zipEntryWanted('meshcentral-mongodump-2026-01-01-03-00.archive'));
+    assert.ok(R.zipEntryWanted('mongodump-2023-11-14-20-32.archive'));   // naming before MeshCentral 1.1.34
+    assert.ok(R.zipEntryWanted('meshcentral-mongodump-2026-01-01-03-00.archive.gz'));
+    assert.ok(!R.zipEntryWanted('notmongodump-2026.archive'));
     assert.ok(R.zipEntryWanted('mysqldump-2026-01-01-03-00.sql'));
     assert.ok(R.zipEntryWanted('pgdump-2026-01-01-03-00.sql'));
     assert.ok(R.zipEntryWanted('meshcentral-sqlitedump-2026-01-01-03-00.db3'));
@@ -163,6 +166,16 @@ test('backup zip: the events file inside meshcentral-data plus a dump at the roo
     const out = await collect(on => R.readFile(f, WANT, on, st));
     assert.equal(st.files, 2);
     checkPair(out);
+    // a 2023 backup: MeshCentral before 1.1.34 named the dump without the database prefix
+    if (bson) {
+        const old = zip([
+            { name: 'meshcentral-data/config.json', data: '{}' },
+            { name: 'mongodump-2023-11-14-20-32.archive', data: archive({ events: RAW.map(d => Object.assign({}, d, { time: new Date(d.time) })) }) }
+        ]);
+        const st2 = {};
+        const out2 = await collect(on => R.readFile(tmp('meshcentral-autobackup-2023-11-14-20-32.zip', old), WANT, on, st2));
+        assert.equal(st2.files, 1); checkPair(out2); assert.equal(st2.file, 'mongodump-2023-11-14-20-32.archive');
+    }
     await assert.rejects(() => R.readFile(tmp('empty.zip', zip([{ name: 'meshcentral-data/config.json', data: '{}' }])), WANT, () => { }, {}), /No events file or database dump/);
     await assert.rejects(() => R.readFile(tmp('enc.zip', zip([{ name: 'meshcentral-data/meshcentral-events.db', data: nedb2, encrypted: true }])), WANT, () => { }, {}), /password protected/);
 });

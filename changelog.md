@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+- **Backups from before MeshCentral 1.1.34 import again**: those name the
+  database dump `mongodump-<date>.archive`, `mysqldump-<date>` and
+  `pgdump-<date>.sql` without the database name in front, and the importer
+  skipped them ("No events file or database dump found in this zip"). The
+  name filter now takes both spellings, and gzip-compressed SQL dumps.
+
 ## 0.2.4
 
 - **Fits the frame**: charts are drawn at their pixel width instead of
