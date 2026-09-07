@@ -12,7 +12,6 @@
         busy = false,
         range = null;
     var lists = { customers: [], projects: [], activities: [] };
-    document.documentElement.classList.toggle('night', !!boot.night);
     function esc(v) {
         return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];

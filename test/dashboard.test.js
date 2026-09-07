@@ -287,3 +287,26 @@ test('share and where-time-went charts use custom breakdown tooltips without nat
     assert.doesNotMatch(share, /<title>| title=/);
     assert.doesNotMatch(where, /<title>| title=/);
 });
+
+test('Kimai initializes the shared parent theme before skipping dashboard rendering', () => {
+    let dark = true, applied, observer;
+    const handlers = {};
+    const body = { classList: { contains: () => dark } };
+    const window = { CS_BOOT: { view: 'kimai', night: false }, parent: { document: { body } }, addEventListener: (name, fn) => { handlers[name] = fn; } };
+    const document = { documentElement: { classList: { toggle: (name, on) => { assert.equal(name, 'night'); applied = on; } } } };
+    function MutationObserver(fn) { observer = fn; this.observe = (target, options) => { assert.equal(target, body); assert.deepEqual(Array.from(options.attributeFilter), ['class']); }; }
+    vm.runInNewContext(source, { window, document, MutationObserver });
+    assert.equal(applied, true, 'parent dark theme overrides absent URL flag');
+    dark = false; observer(); assert.equal(applied, false, 'follows switching to light mode');
+    dark = true; observer(); assert.equal(applied, true, 'follows switching back to dark mode');
+    handlers.message({ data: { cs: 'night', night: false } }); assert.equal(applied, false);
+});
+
+test('standalone Kimai uses the boot theme when no parent body is accessible', () => {
+    for (const night of [true, false]) {
+        let applied;
+        const window = { CS_BOOT: { view: 'kimai', night }, addEventListener() {} }; window.parent = window;
+        vm.runInNewContext(source, { window, document: { documentElement: { classList: { toggle: (_, on) => { applied = on; } } } } });
+        assert.equal(applied, night);
+    }
+});

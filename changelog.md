@@ -1,3 +1,8 @@
+## 0.3.1 — 2026-09-07
+
+- Make Kimai settings inherit MeshCentral's dark theme and follow theme changes,
+  using the same initialization as the dashboard and general settings.
+
 ## 0.3.0 — 2026-09-07
 
 - Add personal Kimai connections, ordered mapping rules, editable export previews,

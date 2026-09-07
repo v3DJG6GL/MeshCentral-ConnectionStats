@@ -7,6 +7,22 @@
 (function () {
     'use strict';
     var BOOT = window.CS_BOOT || {};
+    // night mode: MeshCentral puts a 'night' class on its body. This page is embedded by the
+    // same origin (My Server > Plugins iframe, device tab iframe), so read the parent's body
+    // class directly and follow changes; the boot flag and a posted message are the fallbacks
+    // for the cases where the parent is not reachable.
+    function setNight(on) { document.documentElement.classList.toggle('night', !!on); }
+    function parentBody() {
+        try { if (window.parent && window.parent !== window) return window.parent.document.body; } catch (e) { }
+        return null;
+    }
+    var pb = parentBody();
+    setNight(pb ? pb.classList.contains('night') : BOOT.night);
+    if (pb && typeof MutationObserver == 'function') {
+        try { new MutationObserver(function () { setNight(pb.classList.contains('night')); }).observe(pb, { attributes: true, attributeFilter: ['class'] }); } catch (e) { }
+    }
+    window.addEventListener('message', function (ev) { var d = ev.data; if (d && d.cs == 'night') setNight(d.night); });
+
     if (BOOT.view === 'kimai') return;
     var API = 'pluginadmin.ashx?pin=connectionstats';
     var COMPACT = (BOOT.view == 'device');
@@ -738,22 +754,6 @@
         if ((ev.key == 'Enter' || ev.key == ' ') && ev.target.classList && (ev.target.classList.contains('bar') || ev.target.classList.contains('pc'))) { ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
     window.addEventListener('hashchange', function () { readHash(); if (S.preset != 'custom') applyPreset(); load(); });
-
-    // night mode: MeshCentral puts a 'night' class on its body. This page is embedded by the
-    // same origin (My Server > Plugins iframe, device tab iframe), so read the parent's body
-    // class directly and follow changes; the boot flag and a posted message are the fallbacks
-    // for the cases where the parent is not reachable.
-    function setNight(on) { document.documentElement.classList.toggle('night', !!on); }
-    function parentBody() {
-        try { if (window.parent && window.parent !== window) return window.parent.document.body; } catch (e) { }
-        return null;
-    }
-    var pb = parentBody();
-    setNight(pb ? pb.classList.contains('night') : BOOT.night);
-    if (pb && typeof MutationObserver == 'function') {
-        try { new MutationObserver(function () { setNight(pb.classList.contains('night')); }).observe(pb, { attributes: true, attributeFilter: ['class'] }); } catch (e) { }
-    }
-    window.addEventListener('message', function (ev) { var d = ev.data; if (d && d.cs == 'night') setNight(d.night); });
 
     // expose a little for the export module
     window.CS = { state: S, data: function () { return DATA; }, meta: function () { return META; }, api: API, qs: qs, queryParams: queryParams, tz: TZ, fmtDur: fmtDur, scopeName: scopeName, isoDay: isoDay, render: render, load: load, get: get };
