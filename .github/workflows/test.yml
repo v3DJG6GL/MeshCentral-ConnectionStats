@@ -21,7 +21,7 @@ jobs:
       - run: npm test
 
   live:
-    name: Live backends (PostgreSQL, MariaDB, MySQL, MongoDB)
+    name: Live backends and dump tools (PostgreSQL, MariaDB, MySQL, MongoDB)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -67,6 +67,10 @@ jobs:
       CS_TEST_MARIADB: mariadb://meshcentral:meshcentral@127.0.0.1:33306/meshcentral
       CS_TEST_MYSQL: mysql://meshcentral:meshcentral@127.0.0.1:33307/meshcentral
       CS_TEST_MONGODB: mongodb://127.0.0.1:37017/meshcentral
+      CS_DOCKER_POSTGRES: ${{ job.services.postgres.id }}
+      CS_DOCKER_MARIADB: ${{ job.services.mariadb.id }}
+      CS_DOCKER_MYSQL: ${{ job.services.mysql.id }}
+      CS_DOCKER_MONGODB: ${{ job.services.mongodb.id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -74,4 +78,4 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test test/db_live.test.js
+      - run: node --test test/db_live.test.js test/dumps_live.test.js

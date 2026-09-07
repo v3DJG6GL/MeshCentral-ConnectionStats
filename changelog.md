@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+- **Import from backups**: MeshCentral deletes relay events after 20 days,
+  but its backups keep them. The settings page now lists the files in the
+  server's backup folder and accepts an upload; the plugin reads the events
+  file or database dump inside (`meshcentral-events.db`, a mongodump archive,
+  plain or gzip, a mysqldump, mariadb-dump or pg_dump file, or a SQLite
+  copy) and adds the sessions it does not have yet. Files are recognised by
+  content. Password-protected backups are reported and have to be unzipped
+  first. Sessions restored this way carry the source `backup` in exports.
+- Tested with the real dump tools: `pg_dump`, `mysqldump`, `mariadb-dump`
+  and `mongodump` run inside the test containers and their output is read
+  back.
+
 ## 0.1.1
 
 - **Night mode on the My Server > Plugins page**: the page now reads

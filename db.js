@@ -114,7 +114,7 @@ var normDoc = function (d) {
         lastbeat: (d.lastbeat == null) ? null : intOr(d.lastbeat, null),
         bytesin: Math.max(0, intOr(d.bytesin, 0)), bytesout: Math.max(0, intOr(d.bytesout, 0)),
         ip: strOrNull(d.ip, 64),
-        source: (d.source == 'backfill') ? 'backfill' : 'live',
+        source: (d.source == 'backfill' || d.source == 'backup') ? d.source : 'live',
         truncated: (d.truncated === true || d.truncated === 1),
         nodename: strOrNull(d.nodename, 256), meshname: strOrNull(d.meshname, 256)
     };

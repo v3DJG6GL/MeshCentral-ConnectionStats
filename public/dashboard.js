@@ -263,7 +263,7 @@
     }
 
     // ---------- settings page (site admins) ----------
-    var SET = null, SETMSG = '', BF = null, bfTimer = null;
+    var SET = null, SETMSG = '', BF = null, bfTimer = null, BK = null, RS = null, RSMSG = '', rsTimer = null, rsSel = '';
     function settingsPage() {
         var h = '<div class="cs-bar"><b>Connection Stats settings</b><span class="cs-right"><a class="cs-btn" href="' + API + '">Back to the dashboard</a></span></div>';
         if (ERR) return h + '<div class="cs-empty"><b>Could not load</b><span class="cs-err">' + esc(ERR) + '</span></div>';
@@ -282,9 +282,37 @@
         var bf = BF || SET.backfill || { running: false };
         var bfText = bf.running ? 'Importing: ' + (bf.scanned || 0) + ' events read, ' + (bf.found || 0) + ' sessions found, ' + (bf.imported || 0) + ' imported so far' + (bf.windowFrom ? ', reading back to ' + fmtDate(bf.windowFrom) : '') + '.' : bf.finishedAt ? 'Last import ' + fmtDT(bf.finishedAt) + ': ' + bf.scanned + ' events read, ' + bf.found + ' sessions found, ' + bf.imported + ' imported, ' + bf.skipped + ' already known.' + (bf.error ? ' Error: ' + bf.error : '') : 'Not run in this server session.';
         h += '<div class="cs-card"><h5>Import past sessions from MeshCentral\'s event log</h5><p class="cs-note" style="margin:0">MeshCentral keeps relay events for 20 days by default. Importing reads them and adds any session this plugin does not have yet. Running it again is harmless.</p><div class="cs-bar"><input class="cs-in" type="number" min="1" max="400" id="cs-bfdays" value="' + esc(Math.min(400, st.retentionDays)) + '" style="width:80px"> days back <button class="cs-btn" data-act="backfill"' + (bf.running ? ' disabled' : '') + '>Import now</button><span class="cs-note">' + esc(bfText) + '</span></div></div>';
+        h += restoreCard();
         h += '<div class="cs-card"><h5>Retention</h5><div class="cs-bar"><button class="cs-btn" data-act="sweep">Remove sessions older than ' + esc(st.retentionDays) + ' days now</button><span class="cs-note">Runs automatically every day.</span></div></div>';
         h += '<div class="cs-note">Connection Stats ' + esc(SET.version) + '</div>';
         return h;
+    }
+    function restoreCard() {
+        var rs = RS || { running: false }, busy = !!rs.running;
+        var text;
+        if (busy) text = 'Importing ' + (rs.label || '') + (rs.file && rs.file != rs.label ? ' (' + rs.file + ')' : '') + ': ' + (rs.scanned || 0) + ' records read, ' + (rs.relay || 0) + ' relay events' + (rs.phase == 'importing' ? ', ' + (rs.found || 0) + ' sessions found, ' + (rs.imported || 0) + ' imported so far' : '') + '.';
+        else if (rs.finishedAt) text = 'Last import ' + fmtDT(rs.finishedAt) + ' from ' + (rs.label || 'file') + ': ' + (rs.error ? 'failed. ' + rs.error : (rs.scanned || 0) + ' records read, ' + (rs.relay || 0) + ' relay events, ' + (rs.found || 0) + ' sessions found, ' + (rs.imported || 0) + ' imported, ' + (rs.skipped || 0) + ' already known.');
+        else text = RSMSG || '';
+        var h = '<div class="cs-card"><h5>Import from a backup</h5>';
+        h += '<p class="cs-note" style="margin:0">Relay events older than MeshCentral\'s limit are gone from its database, but its backups still hold them. The plugin reads the events file or database dump inside a backup (meshcentral-events.db, a mongodump archive, a mysqldump or pg_dump file, a SQLite copy) and adds the sessions it does not have yet. Go through your backups oldest first; running one twice is harmless. A password-protected backup has to be unzipped first, then import the file from inside it.</p>';
+        var opts = '';
+        if (BK && BK.files && BK.files.length) opts = BK.files.map(function (f) { return '<option value="' + esc(f.name) + '"' + (f.name == rsSel ? ' selected' : '') + '>' + esc(f.name) + ' (' + fmtBytes(f.size) + ', ' + fmtDate(f.mtime) + ')</option>'; }).join('');
+        var folderNote = BK == null ? 'Looking for backups' : BK.error ? esc(BK.error) : BK.folder == null ? 'MeshCentral has no backup folder.' : (BK.files.length ? esc(BK.folder) : 'No backups in ' + esc(BK.folder) + '.');
+        h += '<div class="cs-bar"><label class="cs-note" for="cs-bkfile">From the server\'s backup folder</label><select class="cs-sel" id="cs-bkfile" style="max-width:420px"' + (opts ? '' : ' disabled') + '>' + (opts || '<option>no backups found</option>') + '</select> <button class="cs-btn" data-act="restore"' + (busy || !opts ? ' disabled' : '') + '>Import this backup</button><span class="cs-note">' + folderNote + '</span></div>';
+        h += '<div class="cs-bar"><label class="cs-note" for="cs-bkupload">Or upload a file</label><input type="file" id="cs-bkupload" class="cs-in" style="max-width:none" accept=".zip,.db,.db3,.sqlite,.archive,.gz,.sql,.json,.jsonl"> <button class="cs-btn" data-act="upload"' + (busy ? ' disabled' : '') + '>Upload and import</button></div>';
+        h += '<div class="cs-note">' + esc(text) + '</div></div>';
+        return h;
+    }
+    function loadBackups() { get(API + '&api=backups').then(function (b) { BK = b; render(); }).catch(function (e) { BK = { folder: null, files: [], error: e.message }; render(); }); }
+    function pollRestore() {
+        if (rsTimer) clearTimeout(rsTimer);
+        get(API + '&api=restore').then(function (r) { RS = r; render(); if (r.running) rsTimer = setTimeout(pollRestore, 1500); }).catch(function () { });
+    }
+    function uploadBackup(file) {
+        var fd = new FormData(); fd.append('file', file, file.name);
+        RSMSG = 'Uploading ' + file.name + ' (' + fmtBytes(file.size) + ')'; render();
+        return fetch(API, { method: 'POST', credentials: 'same-origin', body: fd })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error(j.error || ('Upload failed (' + r.status + ')')); return j; }); });
     }
     function postForm(fields) {
         return fetch(API, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: qs(fields) })
@@ -359,6 +387,8 @@
         if (BOOT.view == 'settings') {
             var a = (el = t.closest('[data-act]')) ? el.dataset.act : null;
             if (a == 'backfill') { var days = document.getElementById('cs-bfdays').value; postForm({ action: 'backfill', days: days }).then(function () { pollBackfill(); }).catch(function (e) { SETMSG = e.message; render(); }); }
+            if (a == 'restore') { var sel = document.getElementById('cs-bkfile'); rsSel = sel.value; RSMSG = ''; postForm({ action: 'restore', file: sel.value }).then(function () { pollRestore(); }).catch(function (e) { RSMSG = e.message; render(); }); }
+            if (a == 'upload') { var inp = document.getElementById('cs-bkupload'); if (!inp.files || !inp.files[0]) { RSMSG = 'Choose a file first.'; render(); } else uploadBackup(inp.files[0]).then(function () { RSMSG = ''; pollRestore(); }).catch(function (e) { RSMSG = e.message; render(); }); }
             if (a == 'sweep') { postForm({ action: 'sweep' }).then(function (j) { SETMSG = 'Removed ' + j.removed + ' session(s).'; render(); }).catch(function (e) { SETMSG = e.message; render(); }); }
             if (t.closest('label.cs-chip')) { setTimeout(function () { root.querySelectorAll('label.cs-chip').forEach(function (l) { l.classList.toggle('off', !l.querySelector('input').checked); }); }, 0); }
             return;
@@ -421,7 +451,7 @@
     window.CS = { state: S, data: function () { return DATA; }, meta: function () { return META; }, api: API, qs: qs, queryParams: queryParams, tz: TZ, fmtDur: fmtDur, scopeName: scopeName, isoDay: isoDay, render: render, load: load, get: get };
 
     // ---------- boot ----------
-    if (BOOT.view == 'settings') { render(); loadSettings(); pollBackfill(); return; }
+    if (BOOT.view == 'settings') { render(); loadSettings(); pollBackfill(); loadBackups(); pollRestore(); return; }
     readHash();
     if (S.preset != 'custom' || !S.start) applyPreset();
     get(API + '&api=meta').then(function (m) { META = m; }).catch(function (e) { ERR = e.message; }).then(function () { load(); });

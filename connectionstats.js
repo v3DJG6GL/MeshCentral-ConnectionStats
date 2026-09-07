@@ -276,6 +276,64 @@ module.exports.connectionstats = function (parent) {
     };
 
     // ------------------------------------------------------------------
+    //  Import from a backup: MeshCentral's backups keep the events it has already expired
+    // ------------------------------------------------------------------
+    obj.restoreStatus = null;
+    var RESTORE_EXT = /\.(zip|db|db3|sqlite|archive|gz|sql|json|jsonl)$/i;
+    obj.backupFolder = function () {
+        var p = obj.meshServer.backuppath;
+        if (typeof p != 'string' || p == '') return null;
+        return require('path').resolve(p);
+    };
+    // Files in MeshCentral's backup folder that the importer can read, newest first.
+    obj.listBackups = function () {
+        var dir = obj.backupFolder();
+        return new Promise(function (resolve) {
+            if (dir == null) { resolve({ folder: null, files: [] }); return; }
+            var fs = require('fs');
+            fs.readdir(dir, function (err, names) {
+                if (err) { resolve({ folder: dir, files: [], error: (err.code == 'ENOENT') ? 'The backup folder does not exist yet.' : err.message }); return; }
+                var files = [];
+                names.forEach(function (n) {
+                    if (!RESTORE_EXT.test(n)) return;
+                    try { var stt = fs.statSync(require('path').join(dir, n)); if (stt.isFile()) files.push({ name: n, size: stt.size, mtime: stt.mtimeMs }); } catch (e) { }
+                });
+                files.sort(function (a, b) { return b.mtime - a.mtime; });
+                resolve({ folder: dir, files: files });
+            });
+        });
+    };
+    obj.startRestore = function (file, label, cleanup) {
+        if (obj.restoreStatus != null && obj.restoreStatus.running) return obj.restoreStatus;
+        obj.restoreStatus = obj.backfill.runFile({
+            meshServer: obj.meshServer, db: obj.db, events: obj.events, resolveNames: obj.resolveNames,
+            log: function (m) { console.log('CONNSTATS: ' + m); }
+        }, file, { label: label, cleanup: cleanup });
+        return obj.restoreStatus;
+    };
+    obj.restoreInfo = function () {
+        var st = obj.restoreStatus;
+        if (st == null) return { running: false };
+        return { running: st.running, label: st.label, file: st.file, files: st.files, phase: st.phase, startedAt: st.startedAt, finishedAt: st.finishedAt, scanned: st.scanned, relay: st.relay, found: st.found, imported: st.imported, skipped: st.skipped, error: st.error };
+    };
+    // A file uploaded from the settings page, parsed with the multiparty module MeshCentral uses
+    // for its own uploads, written to a temp file and removed after the import.
+    obj.handleUpload = function (req, res) {
+        var multiparty = null;
+        try { multiparty = require('multiparty'); } catch (e) { try { multiparty = require.main.require('multiparty'); } catch (e2) { } }
+        if (multiparty == null) { res.status(500).json({ ok: false, error: 'Uploads need the multiparty module, which MeshCentral normally ships' }); return; }
+        if (obj.restoreStatus != null && obj.restoreStatus.running) { res.status(409).json({ ok: false, error: 'An import is already running' }); return; }
+        var form = new multiparty.Form({ uploadDir: require('os').tmpdir(), maxFilesSize: 8 * 1024 * 1024 * 1024 });
+        form.parse(req, function (err, fields, files) {
+            if (err) { res.status(400).json({ ok: false, error: 'Upload failed: ' + err.message }); return; }
+            var f = (files && files.file && files.file[0]) || null;
+            if (f == null) { res.status(400).json({ ok: false, error: 'No file received' }); return; }
+            obj.startRestore(f.path, f.originalFilename || 'uploaded file', true);
+            res.json({ ok: true, restore: obj.restoreInfo() });
+        });
+    };
+
+    // ------------------------------------------------------------------
     //  Capture: every event MeshCentral dispatches lands here
     // ------------------------------------------------------------------
     obj.HandleEvent = function (source, event, ids, id) {
@@ -539,6 +597,8 @@ module.exports.connectionstats = function (parent) {
         if (api == 'query') work = obj.apiQuery(user, req.query);
         else if (api == 'settings') work = Promise.resolve(obj.isAdmin(user) ? { settings: obj.settings, backfill: obj.backfillInfo(), types: obj.events.TYPES, version: PLUGIN_VERSION } : { error: 'Site administrators only', status: 403 });
         else if (api == 'backfill') work = Promise.resolve(obj.isAdmin(user) ? obj.backfillInfo() : { error: 'Site administrators only', status: 403 });
+        else if (api == 'restore') work = Promise.resolve(obj.isAdmin(user) ? obj.restoreInfo() : { error: 'Site administrators only', status: 403 });
+        else if (api == 'backups') work = obj.isAdmin(user) ? obj.listBackups() : Promise.resolve({ error: 'Site administrators only', status: 403 });
         else if (api == 'sessions') work = obj.apiSessions(user, req.query);
         else if (api == 'meta') work = obj.apiMeta(user);
         else { res.status(404).json({ error: 'unknown api' }); return; }
@@ -596,7 +656,9 @@ module.exports.connectionstats = function (parent) {
     // Settings and backfill changes come as form posts from the settings page. Site admins only.
     obj.handleAdminPostReq = function (req, res, user) {
         if (!obj.isAdmin(user)) { res.sendStatus(401); return; }
-        if (obj.db == null || req.body == null) { res.status(503).json({ ok: false, error: 'Connection Stats is still starting' }); return; }
+        if (obj.db == null) { res.status(503).json({ ok: false, error: 'Connection Stats is still starting' }); return; }
+        if (/^multipart\/form-data/i.test(String(req.headers['content-type'] || ''))) { obj.handleUpload(req, res); return; }
+        if (req.body == null) { res.status(400).json({ ok: false, error: 'No form data' }); return; }
         var action = String(req.body.action || '');
         if (action == 'settings') {
             var parsed = null;
@@ -608,6 +670,18 @@ module.exports.connectionstats = function (parent) {
             var days = Math.min(400, Math.max(1, Math.floor(Number(req.body.days)) || obj.settings.retentionDays));
             obj.startBackfill(days);
             res.json({ ok: true, backfill: obj.backfillInfo() });
+            return;
+        }
+        if (action == 'restore') {
+            // a file from MeshCentral's backup folder, by name only (no path separators)
+            var name = String(req.body.file || ''), dir = obj.backupFolder();
+            if (dir == null) { res.status(400).json({ ok: false, error: 'MeshCentral has no backup folder configured' }); return; }
+            if (name == '' || name != require('path').basename(name) || !RESTORE_EXT.test(name)) { res.status(400).json({ ok: false, error: 'Not a backup file name' }); return; }
+            if (obj.restoreStatus != null && obj.restoreStatus.running) { res.status(409).json({ ok: false, error: 'An import is already running' }); return; }
+            var full = require('path').join(dir, name);
+            if (!require('fs').existsSync(full)) { res.status(404).json({ ok: false, error: 'No such file in the backup folder' }); return; }
+            obj.startRestore(full, name, false);
+            res.json({ ok: true, restore: obj.restoreInfo() });
             return;
         }
         if (action == 'sweep') {
