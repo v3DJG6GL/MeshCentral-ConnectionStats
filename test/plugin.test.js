@@ -92,3 +92,29 @@ test('sessions shorter than minSeconds are dropped', { skip: !nedbAvailable && '
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test('backup list sorts by filename date despite copied mtimes, with fallback and deterministic ties', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-backup-order-'));
+    const files = [
+        ['meshcentral-autobackup-2024-08-13-16-45.zip', '2025-12-27'],
+        ['meshcentral-autobackup-2024-02-15-20-24.zip', '2026-09-07'],
+        ['meshcentral-autobackup2026-01-24-08-31.zip', '2025-12-27'],
+        ['mongodump-2023-11-14-20-32.archive', '2026-09-07'],
+        ['manual.zip', '2025-01-01'],
+        ['invalid-2024-02-31-10-00.zip', '2022-01-01'],
+        ['b.zip', '2021-01-01'], ['a.zip', '2021-01-01']
+    ];
+    try {
+        for (const [name, date] of files) {
+            const file = path.join(dir, name);
+            fs.writeFileSync(file, 'sample'); fs.utimesSync(file, new Date(date), new Date(date));
+        }
+        const ms = fakeMeshServer(dir); ms.backuppath = dir;
+        const plugin = require('../connectionstats.js').connectionstats(ms.pluginHandler);
+        const result = await plugin.listBackups();
+        assert.deepEqual(result.files.map(f => f.name), [files[2][0], files[4][0], files[0][0], files[1][0], files[3][0], files[5][0], 'a.zip', 'b.zip']);
+        assert.equal(result.files[0].backupTime, new Date(2026, 0, 24, 8, 31).getTime());
+        assert.equal(result.files[1].backupTime, null);
+        assert.equal(result.files[5].backupTime, null);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

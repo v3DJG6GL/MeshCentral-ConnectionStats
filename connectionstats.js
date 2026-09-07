@@ -324,6 +324,16 @@ module.exports.connectionstats = function (parent) {
         if (typeof p != 'string' || p == '') return null;
         return require('path').resolve(p);
     };
+    // Copies often share a new filesystem timestamp. Prefer the date embedded in
+    // MeshCentral backup/dump names, including the older prefix without a dash.
+    function backupTime(name) {
+        var m = /(?:^|[^0-9])(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})(?:-(\d{2}))?(?=\.|$)/.exec(name);
+        if (!m) return null;
+        var y = +m[1], month = +m[2] - 1, day = +m[3], hour = +m[4], minute = +m[5], second = +(m[6] || 0);
+        var d = new Date(y, month, day, hour, minute, second);
+        if (d.getFullYear() != y || d.getMonth() != month || d.getDate() != day || d.getHours() != hour || d.getMinutes() != minute || d.getSeconds() != second) return null;
+        return d.getTime();
+    }
     // Files in MeshCentral's backup folder that the importer can read, newest first.
     obj.listBackups = function () {
         var dir = obj.backupFolder();
@@ -335,9 +345,9 @@ module.exports.connectionstats = function (parent) {
                 var files = [];
                 names.forEach(function (n) {
                     if (!RESTORE_EXT.test(n)) return;
-                    try { var stt = fs.statSync(require('path').join(dir, n)); if (stt.isFile()) files.push({ name: n, size: stt.size, mtime: stt.mtimeMs }); } catch (e) { }
+                    try { var stt = fs.statSync(require('path').join(dir, n)); if (stt.isFile()) files.push({ name: n, size: stt.size, mtime: stt.mtimeMs, backupTime: backupTime(n) }); } catch (e) { }
                 });
-                files.sort(function (a, b) { return b.mtime - a.mtime; });
+                files.sort(function (a, b) { var at = a.backupTime == null ? a.mtime : a.backupTime, bt = b.backupTime == null ? b.mtime : b.backupTime; return bt - at || a.name.localeCompare(b.name); });
                 resolve({ folder: dir, files: files });
             });
         });

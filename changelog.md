@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.11
+
+- Backup imports list files newest first by the timestamp in their filename,
+  so copying backups no longer scrambles the order. The displayed date follows
+  that timestamp, with filesystem modification time as the fallback.
+
 ## 0.2.10
 
 - MongoDB backup imports recover device and group names from backup records.
