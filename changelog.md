@@ -1,3 +1,12 @@
+## 0.4.1 — 2026-09-08
+
+- Place Kimai controls beside connection status consistently in Desktop, Terminal
+  and Files, leaving file-operation controls untouched.
+- Identify mapped sessions awaiting disconnect review separately from running
+  timers, and keep running-timer labels compact.
+- Expose personal recording preferences beside mapping rules and clarify that
+  they apply to all devices and rules for the signed-in account.
+
 ## 0.4.0 — 2026-09-08
 
 - Add device-toolbar Kimai controls, manual recording without rules, contributor

@@ -36,7 +36,7 @@
 }
 .cs-kd-strip {
     display: inline-flex;
-    margin: 3px 8px;
+    margin: 0 8px;
     vertical-align: middle;
     max-width: 100%;
 }
@@ -47,7 +47,10 @@
     border-radius: 4px;
     padding: 5px 9px !important;
     max-width: 100%;
-    white-space: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
     cursor: pointer;
     font: inherit !important;
     font-variant-numeric: tabular-nums;

@@ -196,7 +196,7 @@
                 (state.nightly ? ' checked' : '') +
                 '> Nightly sync at 02:00 (' +
                 esc(state.timezone) +
-                ')</label></p><button>Save rules and automation</button></form>';
+                ')</label></p><button>Save rules and automation</button><p>Recording review preferences apply to your account across all devices and rules.</p><button type="button" data-device-preferences>My recording preferences</button></form>';
             var q = new URLSearchParams(location.hash.slice(1)),
                 start = Number(q.get('start')) || Date.now() - 86400000,
                 end = Number(q.get('end')) || Date.now();
@@ -385,14 +385,15 @@
     root.addEventListener('click', function (ev) {
         var b = ev.target.closest('button');
         if (!b || busy) return;
-        if (b.hasAttribute('data-device-inbox')) {
+        if (b.hasAttribute('data-device-inbox') || b.hasAttribute('data-device-preferences')) {
+            var deviceAction = b.hasAttribute('data-device-preferences') ? 'openPreferences' : 'openInbox';
             try {
-                if (window.parent.CSDevice) { window.parent.CSDevice.openInbox(); return; }
+                if (window.parent.CSDevice) { window.parent.CSDevice[deviceAction](); return; }
             } catch (_) { }
-            if (window.CSDevice) { window.CSDevice.openInbox(); return; }
+            if (window.CSDevice) { window.CSDevice[deviceAction](); return; }
             var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = api + '&file=kimai-device.css&v=' + encodeURIComponent(boot.version); document.head.appendChild(css);
             var script = document.createElement('script'); script.src = api + '&file=kimai-device.js&v=' + encodeURIComponent(boot.version);
-            script.onload = function () { window.CSDevice.openInbox(); }; document.head.appendChild(script);
+            script.onload = function () { window.CSDevice[deviceAction](); }; document.head.appendChild(script);
             return;
         }
         if (b.hasAttribute('data-add')) {

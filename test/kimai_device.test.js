@@ -509,3 +509,22 @@ test('unconfirmed missing tag creation is never posted again automatically', asy
     );
     assert.equal(posts, 1);
 });
+
+test('device state identifies mapped pending sessions without enabling live automation', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    const s = await f.service.state(f.user);
+    s.rules = [{ ...f.dest, basis: 'connected' }];
+    await f.service.save(f.user, s);
+    const d = f.doc();
+    let v = await f.view();
+    assert.equal(v.sessions[0].mapped, true);
+    assert.equal(v.sessions[0].basis, 'connected');
+    assert.equal(v.allocations.length, 0);
+    const a = await f.action('start', { sessions: [d._id], destination: f.dest, from: 'now' });
+    f.step(10000);
+    v = await f.view();
+    await f.action('stop', { id: a.id, revision: v.allocations[0].revision });
+    v = await f.view();
+    assert.equal(v.sessions[0].mapped, false, 'stopped contributions must not imply ongoing mapped capture');
+});

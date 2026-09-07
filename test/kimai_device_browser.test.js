@@ -9,6 +9,10 @@ function element() {
         children: [],
         className: '',
         textContent: '',
+        insertAdjacentElement(position, c) {
+            assert.equal(position, 'afterend');
+            this.children.push(c);
+        },
         append(c) {
             this.children.push(c);
         },
@@ -20,7 +24,7 @@ function element() {
 async function harness(overrides = {}, environment = {}) {
     const calls = [],
         hosts = Object.fromEntries(
-            ['desktopCustomUiButtons', 'terminalCustomUiButtons', 'p13rightOfButtons'].map((id) => [
+            ['deskstatus', 'termstatus', 'p13Status'].map((id) => [
                 id,
                 element(),
             ]),
@@ -56,10 +60,10 @@ async function harness(overrides = {}, environment = {}) {
         domainUrl: '/tenant/',
         document: {
             hidden: false,
-            getElementById: (id) => hosts[id],
+            getElementById: (id) => hosts[id] || Object.values(hosts).flatMap((h) => h.children).find((c) => c.id === id),
             createElement: element,
-            querySelectorAll: () =>
-                Object.values(hosts).flatMap((h) => h.children.flatMap((c) => c.children)),
+            querySelectorAll: (selector) =>
+                Object.values(hosts).flatMap((h) => h.children.flatMap((c) => c.children || [])).filter((c) => selector === '.' + c.className),
         },
         window: {},
         fetch: async (url, options) => {
@@ -86,9 +90,9 @@ async function harness(overrides = {}, environment = {}) {
 test('device mounting preserves host toolbar content and avoids duplicate controls', async () => {
     const h = await harness();
     for (const host of Object.values(h.hosts)) assert.equal(host.children.length, 1);
-    h.hosts.desktopCustomUiButtons.children.push({ className: 'other-plugin' });
+    h.hosts.deskstatus.children.push({ className: 'other-plugin' });
     await h.api.refresh(true);
-    assert.equal(h.hosts.desktopCustomUiButtons.children.length, 2);
+    assert.equal(h.hosts.deskstatus.children.length, 2);
     assert.match(
         h.calls[0].url,
         /^\/tenant\/pluginadmin\.ashx\?pin=connectionstats&api=kimai-device&nodeid=node%2Ftest$/,
@@ -166,4 +170,15 @@ test('quick stop selects only open contributors on the current device', async ()
         'a',
     );
     assert.deepEqual(Array.from(ids), ['desktop', 'terminal']);
+});
+
+test('mapped open sessions show pending review without claiming a running Kimai timer', async () => {
+    const h = await harness({sessions: [{nodeid: 'node/test', end: null, mapped: true, basis: 'connected'}]});
+    assert.match(h.hosts.deskstatus.children[0].children[0].textContent, /Mapped · review after disconnect/);
+    h.initial.sessions[0].basis = 'active';
+    await h.api.refresh(true);
+    assert.match(h.hosts.termstatus.children[0].children[0].textContent, /Active time · review after disconnect/);
+    h.initial.sessions[0].end = Date.now();
+    await h.api.refresh(true);
+    assert.match(h.hosts.p13Status.children[0].children[0].textContent, /Start timer/);
 });

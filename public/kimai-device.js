@@ -744,10 +744,10 @@
             }
         }
         active = null;
-        shell('My recording preferences');
+        shell('My recording preferences — all devices');
         var prefs = state.preferences || {};
         content(
-            '<form data-preferences><label>After a recording ends<select name="prompt"><option value="always">Always open review</option><option value="issues">Only when attention is needed</option><option value="never">Never open automatically</option></select></label><label>Presentation<select name="presentation"><option value="drawer">Side panel</option><option value="dialog">Centered dialog</option></select></label><p>Reviews wait in your inbox while another connection is active. Disabling prompts never discards work or enables automatic billing.</p><button class="cs-kd-primary" data-mutation>Save preferences</button></form><p><a href="' +
+            '<p>These personal settings apply to all your devices and mapping rules.</p><form data-preferences><label>After a recording ends<select name="prompt"><option value="always">Always open review</option><option value="issues">Only when attention is needed</option><option value="never">Never open automatically</option></select></label><label>Presentation<select name="presentation"><option value="drawer">Side panel</option><option value="dialog">Centered dialog</option></select></label><p>Reviews wait in your inbox while another connection is active. Disabling prompts never discards work or enables automatic billing.</p><button class="cs-kd-primary" data-mutation>Save preferences</button></form><p><a href="' +
                 esc(api + '&view=kimai') +
                 '">Manage rules, token and automation</a></p>',
         );
@@ -788,11 +788,12 @@
             });
     }
     function mount() {
-        ['desktopCustomUiButtons', 'terminalCustomUiButtons', 'p13rightOfButtons'].forEach(function (id) {
+        ['deskstatus', 'termstatus', 'p13Status'].forEach(function (id) {
             var host = document.getElementById(id);
-            if (!host || host.querySelector('.cs-kd-strip')) return;
+            if (!host || document.getElementById('cs-kd-' + id)) return;
             var wrap = document.createElement('span');
             wrap.className = 'cs-kd-strip';
+            wrap.id = 'cs-kd-' + id;
             var button = document.createElement('button');
             button.type = 'button';
             button.className = 'cs-kd-chip';
@@ -807,20 +808,27 @@
             stopButton.hidden = true;
             wrap.append(button);
             wrap.append(stopButton);
-            host.append(wrap);
+            host.insertAdjacentElement('afterend', wrap);
         });
     }
     function updateChips() {
         var a = deviceAllocations().find(ongoing),
-            count = (state.reviews || []).length;
+            count = (state.reviews || []).length,
+            mapped = (state.sessions || []).filter(function (x) {
+                return x.nodeid === currentNodeId() && x.end == null && x.mapped;
+            });
         document.querySelectorAll('.cs-kd-chip').forEach(function (b) {
             b.textContent =
                 'Kimai · ' +
                 (!state.connected
                     ? 'Connect account'
                     : a
-                      ? title(a) + ' ' + duration(a.seconds)
-                      : 'Start timer') +
+                      ? (a.status === 'recording-local' ? 'Recording locally' : 'Recording in Kimai') + ' ' + duration(a.seconds)
+                      : mapped.length
+                        ? (mapped.some(function (x) { return x.basis === 'active'; })
+                            ? 'Active time · review after disconnect'
+                            : 'Mapped · review after disconnect')
+                        : 'Start timer') +
                 (count ? ' · ' + count + ' to review' : '');
             b.title = 'Open personal Kimai controls';
         });
@@ -929,6 +937,10 @@
         }
     }
     window.CSDevice = {
+        openPreferences: async function () {
+            await refresh(true);
+            if (state) return showPreferences();
+        },
         refresh: function () {
             return refresh(false);
         },

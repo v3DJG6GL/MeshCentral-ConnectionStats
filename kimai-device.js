@@ -183,6 +183,7 @@ class Device {
             });
             if (connected) await this.refresh(user, s, docs);
             await this.s.save(user, s);
+            const { match } = this.helpers();
             const visible = docs.filter((x) => !nodeid || x.nodeid === nodeid);
             const permitted = new Set(docs.map((x) => x._id));
             const allocations = Object.values(s.allocations).filter(
@@ -206,6 +207,9 @@ class Device {
                     nodeid: x.nodeid,
                     name: x.nodename || x.nodeid,
                     type: x.type,
+                    mapped: x.source === 'live' && !x.guest && !!match(x, s.rules || []) &&
+                        subtract(x.start, x.end, cuts(s, x)).some((piece) => piece.end == null),
+                    basis: match(x, s.rules || [])?.basis || null,
                     start: x.start,
                     end: x.end,
                 })),
