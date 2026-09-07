@@ -16,14 +16,22 @@
         { k: 'webapp', n: 'Web RDP/SSH', c: '#66CCEE' },
         { k: 'messenger', n: 'Messenger', c: '#AA3377' },
         { k: 'amt', n: 'Intel AMT', c: '#EE6677' },
+        { k: 'tunnel', n: 'Router tunnel', c: '#9970AB' },
+        { k: 'plugin', n: 'Plugin', c: '#44AA99' },
         { k: 'other', n: 'Other', c: '#BBBBBB' }
     ];
     var TYPE = {}; TYPES.forEach(function (t) { TYPE[t.k] = t; });
     // MeshCentral's relay protocol numbers. Anything that is not one of the named types lands in
     // "Other"; the number tells what it was. 0 means the relay was opened without a protocol,
     // which is what MeshCentral Router and other port tunnels do.
-    var PROTO = { 0: 'Router or port tunnel', 1: 'Terminal', 2: 'Desktop', 5: 'Files', 6: 'PowerShell', 7: 'Plugin', 8: 'Root shell', 9: 'Root PowerShell', 10: 'RDP relay', 11: 'SSH relay', 12: 'VNC relay', 13: 'SFTP relay', 14: 'Web-TCP relay', 100: 'Intel AMT', 101: 'Intel AMT', 200: 'Messenger', 201: 'Web RDP', 202: 'Web SSH', 203: 'Web SFTP' };
-    function protoName(p) { p = Number(p) || 0; return PROTO[p] || ('protocol ' + p); }
+    var PROTO = { 0: 'Router or port tunnel', 1: 'Terminal', 2: 'Desktop', 5: 'Files', 6: 'PowerShell', 7: 'Plugin data, e.g. Event Log live view', 8: 'Root shell', 9: 'Root PowerShell', 10: 'RDP relay', 11: 'SSH relay', 12: 'VNC relay', 13: 'SFTP relay', 14: 'Web-TCP relay', 100: 'Intel AMT', 101: 'Intel AMT', 200: 'Messenger', 201: 'Web RDP', 202: 'Web SSH', 203: 'Web SFTP' };
+    function protoName(p) { p = Number(p) || 0; return PROTO[p] || ('protocol ' + p + ', not one MeshCentral itself uses'); }
+    // only these views report input, so only they can show measured active time
+    var ACTIVE_TYPES = { desktop: 1, terminal: 1, files: 1 };
+    function activeCell(x) {
+        if (x.active != null) return '<td class="num">' + fmtDur(x.active) + '</td>';
+        return ACTIVE_TYPES[x.type] ? '<td class="num dim" title="No input was reported for this session: it was not opened in this web UI, or active time was off">no data</td>' : '<td class="num dim" title="Active time is only measured for Desktop, Terminal and Files">&ndash;</td>';
+    }
     var DAY = 86400000;
     var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -128,12 +136,41 @@
             }
         }).then(function () { LOADING = false; render(); }).catch(function (e) { LOADING = false; ERR = e.message || String(e); render(); });
     }
-    function loadList(skip) {
+    function listParams(skip) {
         var qp = queryParams(); qp.skip = skip; qp.limit = S.limit;
         if (S.sel) { var b = DATA.aggregate.buckets[S.sel.i]; qp.start = b.s; qp.end = b.e; qp.types = S.sel.t; }
         if (S.pc) { qp.wd = S.pc.wd; qp.hour = S.pc.h; }
-        get(API + '&api=sessions&' + qs(qp)).then(function (l) { LIST = l; S.skip = skip; render(); }).catch(function (e) { ERR = e.message; render(); });
+        return qp;
     }
+    function loadList(skip) {
+        get(API + '&api=sessions&' + qs(listParams(skip))).then(function (l) { LIST = l; S.skip = skip; render(); }).catch(function (e) { ERR = e.message; render(); });
+    }
+    // live: the server counts session writes (api=seq); when the count moves, everything is
+    // fetched again in place, keeping the selection, the page and the scroll position
+    var SEQ = null, REFRESHING = false;
+    function refresh() {
+        if (REFRESHING || LOADING || !DATA) return;
+        REFRESHING = true;
+        if (S.preset != 'custom') applyPreset();
+        var qp = queryParams(); qp.limit = S.limit;
+        get(API + '&api=query&' + qs(qp)).then(function (d) {
+            DATA = d;
+            if (S.sel && !d.aggregate.buckets[S.sel.i]) S.sel = null;
+            var more = [];
+            if (d.aggregate.bucket == 'hour') { var lp = queryParams(); lp.limit = 500; more.push(get(API + '&api=sessions&' + qs(lp)).then(function (l) { DAYLIST = l.rows; })); }
+            if (S.sel || S.pc || S.skip) more.push(get(API + '&api=sessions&' + qs(listParams(S.skip))).then(function (l) { LIST = l; }));
+            else LIST = d.sessions;
+            return Promise.all(more);
+        }).then(function () { REFRESHING = false; render(); }).catch(function () { REFRESHING = false; });
+    }
+    function pollSeq() {
+        if (document.hidden || BOOT.view == 'settings' || !DATA || LOADING) return;
+        get(API + '&api=seq').then(function (r) { if (SEQ != null && r.seq != SEQ) refresh(); SEQ = r.seq; }).catch(function () { });
+    }
+    setInterval(pollSeq, 10000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) pollSeq(); });
+    // ongoing sessions grow while you watch: redraw once a minute so their durations move
+    setInterval(function () { if (!document.hidden && DATA && !LOADING && DATA.aggregate.totals.ongoing) render(); }, 60000);
 
     // ---------- charts (inline SVG) ----------
     function niceMax(v) { if (v <= 0) return 1; var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10)); var m = v / e; var n = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10; return n * e; }
@@ -249,10 +286,10 @@
         return s + '</div>';
     }
     function table(list) {
-        var rows = list.rows || [], n = list.total || 0, s = '<div class="cs-tscroll"><table class="cs-table"><thead><tr><th>Start</th><th>Type</th><th>Device</th>' + (COMPACT ? '' : '<th>Group</th>') + '<th>Admin</th><th class="num">Duration</th><th class="num">Active</th><th class="num">Received</th><th class="num">Sent</th><th>From</th></tr></thead><tbody>';
+        var rows = list.rows || [], n = list.total || 0, s = '<div class="cs-tscroll"><table class="cs-table"><thead><tr><th>Start</th><th class="num">Duration</th><th class="num">Active</th><th>Type</th><th>Device</th>' + (COMPACT ? '' : '<th>Group</th>') + '<th>Admin</th><th class="num">Received</th><th class="num">Sent</th><th>From</th></tr></thead><tbody>';
         rows.forEach(function (x) {
             var e = x.end == null ? Date.now() : x.end, t = TYPE[x.type] || TYPE.other;
-            s += '<tr' + (x.end == null ? ' class="hl"' : '') + '><td>' + fmtDT(x.start) + '</td><td><span class="ty" title="' + esc(protoName(x.protocol)) + '"><i style="background:' + t.c + '"></i>' + t.n + (x.type == 'other' ? ' <small class="dim">' + esc(protoName(x.protocol)) + '</small>' : '') + '</span></td><td>' + esc(x.node) + '</td>' + (COMPACT ? '' : '<td>' + esc(x.group || '') + '</td>') + '<td>' + (x.guest ? 'Guest: ' + esc(x.guest) : esc(x.user)) + '</td><td class="num">' + fmtDur((e - x.start) / 1000) + (x.end == null ? ', ongoing' : x.truncated ? ' <span title="The start or end of this session was not observed">*</span>' : '') + '</td><td class="num' + (x.active == null ? ' dim' : '') + '">' + (x.active == null ? 'no data' : fmtDur(x.active)) + '</td><td class="num">' + fmtBytes(x.bytesin) + '</td><td class="num">' + fmtBytes(x.bytesout) + '</td><td>' + esc(x.ip || '') + '</td></tr>';
+            s += '<tr' + (x.end == null ? ' class="hl"' : '') + '><td>' + fmtDT(x.start) + '</td><td class="num">' + fmtDur((e - x.start) / 1000) + (x.end == null ? ', ongoing' : x.truncated ? ' <span title="The start or end of this session was not observed">*</span>' : '') + '</td>' + activeCell(x) + '<td><span class="ty" title="' + esc(protoName(x.protocol)) + '"><i style="background:' + t.c + '"></i>' + t.n + (x.type == 'other' ? ' <small class="dim">' + esc(protoName(x.protocol)) + '</small>' : '') + '</span></td><td>' + esc(x.node) + '</td>' + (COMPACT ? '' : '<td>' + esc(x.group || '') + '</td>') + '<td>' + (x.guest ? 'Guest: ' + esc(x.guest) : esc(x.user)) + '</td><td class="num">' + fmtBytes(x.bytesin) + '</td><td class="num">' + fmtBytes(x.bytesout) + '</td><td>' + esc(x.ip || '') + '</td></tr>';
         });
         if (!rows.length) s += '<tr><td colspan="10" class="dim">No sessions match.</td></tr>';
         s += '</tbody></table></div>';

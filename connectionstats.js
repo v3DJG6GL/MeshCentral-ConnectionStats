@@ -218,7 +218,7 @@ module.exports.connectionstats = function (parent) {
         obj.meshServer.pluginHandler.connectionstats_sub = obj;
         obj.meshServer.AddEventDispatch(['*'], obj);
 
-        obj.loadSettings().then(function () { return obj.restoreOpenSessions(); }).then(function () { return obj.maybeAutoBackfill(); }).catch(function (e) {
+        obj.loadSettings().then(function () { return obj.retypeOnce(); }).then(function () { return obj.restoreOpenSessions(); }).then(function () { return obj.maybeAutoBackfill(); }).catch(function (e) {
             console.log('CONNSTATS: startup error: ' + (e.message || e));
         });
         // heartbeats reach the store once a minute, so a crash loses at most a minute of active time
@@ -227,6 +227,43 @@ module.exports.connectionstats = function (parent) {
         try { flush.unref(); } catch (e) { }
         obj.meshServer.pluginHandler.connectionstats_flush = flush;
         console.log('CONNSTATS: plugin ' + PLUGIN_VERSION + ' started');
+    };
+
+    // 0.2.2 split "Other" into port tunnels (no protocol) and plugin tunnels (protocol 7). Records
+    // written before that are re-typed once, and the two new types start out recorded when
+    // "Other" was.
+    obj.retypeOnce = function () {
+        return obj.db.getSetting('retype_v2').then(function (done) {
+            if (done != null) return null;
+            var work = Promise.resolve();
+            if (obj.settings.recordTypes.indexOf('other') >= 0) {
+                var rt = obj.settings.recordTypes.slice();
+                ['tunnel', 'plugin'].forEach(function (t) { if (rt.indexOf(t) < 0) rt.push(t); });
+                work = obj.saveSettings(Object.assign({}, obj.settings, { recordTypes: rt }));
+            }
+            // collect first, update after: an updated row leaves the "other" filter and would shift the paging
+            var todo = [], page = 500, domains = Object.keys((obj.meshServer.config && obj.meshServer.config.domains) || { '': {} });
+            var collect = function (domain, skip) {
+                return obj.db.listSessions({ domain: domain, start: 0, end: Date.now() + 366 * 86400000, types: ['other'], includeGuests: true }, { skip: skip, limit: page }).then(function (l) {
+                    l.rows.forEach(function (d) {
+                        var t = obj.events.typeOf(d.protocol == null ? 0 : d.protocol);
+                        if (t != 'other') todo.push({ id: d._id, type: t });
+                    });
+                    return (l.rows.length < page) ? null : collect(domain, skip + page);
+                });
+            };
+            domains.forEach(function (dom) { work = work.then(function () { return collect(dom, 0); }); });
+            var n = 0;
+            return work.then(function () {
+                var w = Promise.resolve();
+                todo.forEach(function (x) { w = w.then(function () { n++; return obj.db.updateSession(x.id, { type: x.type }); }); });
+                return w;
+            }).then(function () {
+                if (n) console.log('CONNSTATS: re-typed ' + n + ' "Other" sessions as tunnel or plugin');
+                obj.seq++;
+                return obj.db.setSetting('retype_v2', { at: Date.now(), count: n });
+            });
+        }).catch(function (e) { console.log('CONNSTATS: retype error: ' + (e.message || e)); });
     };
 
     // Sessions that were open when the server last stopped can never receive their end event.
@@ -336,6 +373,10 @@ module.exports.connectionstats = function (parent) {
     // ------------------------------------------------------------------
     //  Capture: every event MeshCentral dispatches lands here
     // ------------------------------------------------------------------
+    // bumps whenever a session is written, so the page can notice changes cheaply (api=seq)
+    obj.seq = 0;
+    function wrote(p) { return p.then(function (r) { obj.seq++; return r; }); }
+
     obj.HandleEvent = function (source, event, ids, id) {
         try {
             if (obj.db == null || obj.settings == null) return;
@@ -347,7 +388,7 @@ module.exports.connectionstats = function (parent) {
                 if (doc == null) return;
                 obj.resolveNames(doc.nodeid, function (names) {
                     doc.meshid = names.meshid; doc.nodename = names.nodename; doc.meshname = names.meshname;
-                    obj.db.upsertSession(doc).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
+                    wrote(obj.db.upsertSession(doc)).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
                 });
             } else {
                 var done = obj.pairer.onEnd(c);
@@ -355,17 +396,17 @@ module.exports.connectionstats = function (parent) {
                 if (obj.settings.recordTypes.indexOf(done.type) < 0) return;
                 if (done.seconds < obj.settings.minSeconds) {
                     // too short to be a session (a misclick): drop the open record if one was written
-                    obj.db.removeSession(done._id).catch(function () { });
+                    wrote(obj.db.removeSession(done._id)).catch(function () { });
                     return;
                 }
                 obj.finalizeActive(done);
                 if (done.truncated && done.nodename == null) {
                     obj.resolveNames(done.nodeid, function (names) {
                         done.meshid = names.meshid; done.nodename = names.nodename; done.meshname = names.meshname;
-                        obj.db.upsertSession(done).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
+                        wrote(obj.db.upsertSession(done)).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
                     });
                 } else {
-                    obj.db.upsertSession(done).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
+                    wrote(obj.db.upsertSession(done)).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
                 }
             }
         } catch (e) { console.log('CONNSTATS: event error: ' + (e.message || e)); }
@@ -387,7 +428,7 @@ module.exports.connectionstats = function (parent) {
                 if (open == null) { obj.tracker.forget(sid); return; }
                 var patch = { active: obj.tracker.activeFor(sid, open.start, null), lastbeat: obj.tracker.lastBeat(sid) };
                 open.active = patch.active; open.lastbeat = patch.lastbeat;
-                obj.db.updateSession(sid, patch).catch(function () { });
+                wrote(obj.db.updateSession(sid, patch)).catch(function () { });
             });
         } catch (e) { console.log('CONNSTATS: flush error: ' + (e.message || e)); }
     };
@@ -612,6 +653,7 @@ module.exports.connectionstats = function (parent) {
         else if (api == 'restore') work = Promise.resolve(obj.isAdmin(user) ? obj.restoreInfo() : { error: 'Site administrators only', status: 403 });
         else if (api == 'backups') work = obj.isAdmin(user) ? obj.listBackups() : Promise.resolve({ error: 'Site administrators only', status: 403 });
         else if (api == 'sessions') work = obj.apiSessions(user, req.query);
+        else if (api == 'seq') work = Promise.resolve({ seq: obj.seq });
         else if (api == 'meta') work = obj.apiMeta(user);
         else { res.status(404).json({ error: 'unknown api' }); return; }
         work.then(function (r) {

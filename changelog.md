@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2
+
+- **Two new types instead of "Other"**: *Router tunnel* for MeshCentral
+  Router and other port tunnels (they carry no protocol number) and *Plugin*
+  for the data tunnels plugins open, such as the Event Log live view. Existing
+  records are re-typed once at startup, and both types are recorded wherever
+  "Other" was. What remains in "Other" shows its relay protocol.
+- **Live session list**: the page notices new, ended and updated sessions
+  within about ten seconds and refreshes in place, keeping the selection and
+  the page; ongoing sessions keep counting.
+- **Session table**: Duration and Active moved next to Start; Active shows a
+  dash for types where no input is measured and "no data" only for Desktop,
+  Terminal and Files sessions without heartbeats.
+
 ## 0.2.1
 
 - **"Other" explained**: the share-by-type legend breaks "Other" down by what

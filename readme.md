@@ -17,11 +17,13 @@ How long you were remoted into each device, split by Desktop, Terminal, Files an
 
 ### Two measures
 
-**Connected time** is how long the session was open. **Active time** is how long you were giving input in the Desktop, Terminal or Files view, measured in the browser and reported as "still active" heartbeats, never the input itself. Both are shown; nothing is trimmed from the stored session. Sessions from other clients, such as MeshCentral Router or MeshCentral Assistant, and Web-RDP, SSH and SFTP sessions cannot be observed and show "no data". The totals row tells you how much of the connected time had input data.
+**Connected time** is how long the session was open. **Active time** is how long you were giving input in the Desktop, Terminal or Files view, measured in the browser and reported as "still active" heartbeats, never the input itself. Both are shown; nothing is trimmed from the stored session. A Desktop, Terminal or Files session from another client, such as MeshCentral Router or MeshCentral Assistant, cannot be observed and shows "no data"; the other types show a dash because no input is measured for them. The totals row tells you how much of the connected time had input data.
+
+The dashboard is live: new and ended sessions appear within about ten seconds while the page is open, and ongoing sessions keep counting.
 
 ### Session types
 
-Desktop, Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, and everything else as "Other". "Other" is mostly MeshCentral Router: it opens its port tunnels without telling MeshCentral a protocol, so RDP, SSH, VNC or any other port forwarded through Router lands there, as do the RDP, SSH, VNC and SFTP relays MeshCentral opens for itself. The share-by-type legend and the session list say which of these it was. Device-share guests are recorded separately with the guest name, are off by default in the dashboard, and never count into admin totals.
+Desktop, Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, Router tunnel (MeshCentral Router and other port tunnels, which carry no protocol so RDP, SSH, VNC or any forwarded port all land here), Plugin (data tunnels plugins open to the agent, for example the Event Log plugin's live view), and everything else as "Other". For "Other" the share-by-type legend and the session list name the relay protocol, so you can tell an RDP relay from a tunnel a third-party plugin opened. Device-share guests are recorded separately with the guest name, are off by default in the dashboard, and never count into admin totals.
 
 ![Night mode, one day](https://raw.githubusercontent.com/v3DJG6GL/MeshCentral-ConnectionStats/master/docs/night-day.png)
 
