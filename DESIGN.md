@@ -269,3 +269,11 @@ Decided 2026-09-07:
   as a "Guests" entry in the admin filter (off by default), are never added
   into admin totals, show as "Guest: name" in the session list, and get a
   `guest` column in exports.
+
+## Proposed Kimai device controls (design study)
+
+The [device-control research and UX specification](docs/kimai-device-ux/design.md)
+and [interactive mockup](docs/kimai-device-ux/mockup.html) explore manual timers,
+scoped stop/discard actions, end-session review, and inline destination creation.
+This is a proposal, not implemented plugin functionality. The specification includes
+the coverage-ledger changes and compatibility gates required before implementation.
