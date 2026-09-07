@@ -250,7 +250,8 @@
         if (dialog && dialog.open) dialog.close();
         if (panel) panel.hidden = true;
     }
-    function shell(heading, modal) {
+    function shell(heading) {
+        var modal = state && state.preferences && state.preferences.presentation === 'dialog';
         if (confirmation) confirmation.cancel();
         formGeneration++;
         cancelDraft();
@@ -398,9 +399,9 @@
         if (d.get('endLocal')) row.endLocal = d.get('endLocal');
         return row;
     }
-    async function editor(a, modal) {
+    async function editor(a) {
         active = a || null;
-        shell(a ? (ongoing(a) ? 'Recording details' : 'Review recording') : 'Start a timer', modal);
+        shell(a ? (ongoing(a) ? 'Recording details' : 'Review recording') : 'Start a timer');
         var generation = formGeneration;
         if (!state.connected) {
             content(
@@ -1129,7 +1130,7 @@
             var r = await post('claim', { id: a.id });
             if (r.show && !document.hidden && !(panel && !panel.hidden)) {
                 dismissed.add(a.id);
-                await editor(latest(a.id) || a, prefs.presentation === 'dialog');
+                await editor(latest(a.id) || a);
             }
         } catch (_) {}
     }

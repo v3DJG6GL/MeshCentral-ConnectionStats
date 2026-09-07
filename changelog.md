@@ -1,3 +1,9 @@
+## 0.4.5 — 2026-09-08
+
+- Apply the selected review presentation consistently to manual device controls,
+  recording review and inbox navigation, as well as automatic disconnect review.
+  Centered panels no longer revert to the side panel when navigating.
+
 ## 0.4.4 — 2026-09-08
 
 - Keep inline confirmations beside the triggering Save, Discard or review action,

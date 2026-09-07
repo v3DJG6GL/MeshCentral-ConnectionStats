@@ -81,7 +81,7 @@ async function harness(overrides = {}, environment = {}) {
     vm.runInContext(
         source.replace(
             /window\.CSDevice\s*=\s*\{/,
-            'window.__test={placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
+            'window.__test={shell,placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
         ),
         context,
     );
@@ -270,4 +270,35 @@ test('confirmations stay beside the triggering action in editor and inbox', asyn
         insertAdjacentElement: (where, x) => calls.push(['button', where, x]),
     });
     assert.deepEqual(calls.pop(), ['button', 'afterend', box]);
+});
+
+test('presentation preference applies to manual editor, inbox and subsequent navigation', async () => {
+    const h = await harness({ preferences: { prompt: 'never', presentation: 'dialog' } });
+    const p = { hidden: true, querySelector: () => ({}), querySelectorAll: () => [] };
+    const events = [];
+    h.context.document.body = { append: () => events.push('body') };
+    h.context.document.createElement = () => ({
+        open: false,
+        setAttribute() {},
+        addEventListener() {},
+        append() {
+            events.push('dialog');
+        },
+        showModal() {
+            this.open = true;
+            events.push('show');
+        },
+        close() {
+            this.open = false;
+            events.push('close');
+        },
+    });
+    h.api.setPanel(p);
+    h.api.shell('Review recording');
+    assert.deepEqual(events.slice(-2), ['dialog', 'show']);
+    h.api.shell('Review inbox');
+    assert.deepEqual(events.slice(-4), ['close', 'body', 'dialog', 'show']);
+    h.initial.preferences.presentation = 'drawer';
+    h.api.shell('Recording details');
+    assert.deepEqual(events.slice(-2), ['close', 'body']);
 });
