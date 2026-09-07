@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.9
+
+- Custom dates wait for Apply or Enter so the full year can be typed without
+  resetting the field after the first digit.
+- Dashboard filters are saved per user and restored when returning to the plugin.
+- The saved session-list page size is restored correctly.
+
 ## 0.2.8
 
 - No weekday in front of dates any more: the session list shows "7.9.2026, 19:08",
