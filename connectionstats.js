@@ -19,6 +19,8 @@ module.exports.connectionstats = function (parent) {
     obj.pairer = null;
     obj.events = require(__dirname + '/events.js');
     obj.aggregate = require(__dirname + '/aggregate.js');
+    obj.activity = require(__dirname + '/activity.js');
+    obj.tracker = new obj.activity.Tracker(300);
     obj.perms = new (require(__dirname + '/permissions.js').Permissions)(obj.meshServer);
 
     var PLUGIN_VERSION = (function () { try { return require(__dirname + '/config.json').version; } catch (e) { return '0.0.0'; } })();
@@ -34,7 +36,11 @@ module.exports.connectionstats = function (parent) {
         'csNight',
         'csTabUrl',
         'csEnsureTab',
-        'csOnMessage'
+        'csOnMessage',
+        'csActivityInit',
+        'csKindOf',
+        'csBeat',
+        'csObserve'
     ];
 
     // Runs once when the web UI has loaded: keep embedded pages in step with night mode and
@@ -48,6 +54,62 @@ module.exports.connectionstats = function (parent) {
                 if (f && f.contentWindow) { try { f.contentWindow.postMessage({ cs: 'night', night: pluginHandler.connectionstats.csNight() }, '*'); } catch (e) { } }
             });
             mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+            pluginHandler.connectionstats.csActivityInit();
+        } catch (e) { }
+    };
+
+    // ---- active time: input in the Desktop, Terminal and Files views becomes heartbeats ----
+    // Which view an input event belongs to, by the element it landed on. Null for anything else.
+    obj.csKindOf = function (el) {
+        try {
+            while (el != null && el.nodeType == 1) {
+                var id = el.id || '';
+                if (id == 'Desk' || id == 'DeskParent' || id == 'deskarea3x') return 'desktop';
+                if (id == 'termTable' || id == 'termarea3xdiv' || id == 'termarea3x' || (el.classList && el.classList.contains('xterm'))) return 'terminal';
+                if (id == 'p13filetable' || id == 'p13' || id == 'p5filetable') return 'files';
+                el = el.parentNode;
+            }
+        } catch (e) { }
+        return null;
+    };
+
+    // Only "still active" leaves the browser: the node and the kind of view, never the input.
+    obj.csBeat = function (kind) {
+        try {
+            if (typeof currentNode == 'undefined' || currentNode == null || typeof meshserver == 'undefined') return;
+            var st = window.__csAct; if (st == null) st = window.__csAct = { last: {}, seen: {} };
+            var now = Date.now(), key = currentNode._id + '|' + kind;
+            if (st.last[key] != null && now - st.last[key] < 30000) return;
+            st.last[key] = now; st.seen[key] = now;
+            meshserver.send({ action: 'plugin', plugin: 'connectionstats', pluginaction: 'beat', nodeid: currentNode._id, kind: kind });
+        } catch (e) { }
+    };
+
+    // A connected view with no input yet is "observed": its session gets 0 active seconds instead
+    // of "no data". Polled, because the UI has no hook for the terminal or files connecting.
+    obj.csObserve = function () {
+        try {
+            if (typeof currentNode == 'undefined' || currentNode == null || typeof meshserver == 'undefined') return;
+            var st = window.__csAct; if (st == null) st = window.__csAct = { last: {}, seen: {} };
+            var kinds = [];
+            if (typeof desktop != 'undefined' && desktop != null && desktop.State == 3) kinds.push('desktop');
+            if (typeof terminal != 'undefined' && terminal != null && terminal.State == 3) kinds.push('terminal');
+            if (typeof files != 'undefined' && files != null && files.State == 3) kinds.push('files');
+            kinds.forEach(function (kind) {
+                var key = currentNode._id + '|' + kind;
+                if (st.seen[key] != null && Date.now() - st.seen[key] < 120000) return;
+                st.seen[key] = Date.now();
+                meshserver.send({ action: 'plugin', plugin: 'connectionstats', pluginaction: 'observe', nodeid: currentNode._id, kind: kind });
+            });
+        } catch (e) { }
+    };
+
+    obj.csActivityInit = function () {
+        try {
+            if (window.__csActInit) return; window.__csActInit = true;
+            var handler = function (ev) { var k = pluginHandler.connectionstats.csKindOf(ev.target); if (k != null) pluginHandler.connectionstats.csBeat(k); };
+            ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'].forEach(function (n) { document.addEventListener(n, handler, { capture: true, passive: true }); });
+            setInterval(function () { pluginHandler.connectionstats.csObserve(); }, 5000);
         } catch (e) { }
     };
 
@@ -120,6 +182,7 @@ module.exports.connectionstats = function (parent) {
         return obj.db.getSetting('settings').then(function (s) {
             obj.settings = obj.sanitizeSettings(s);
             obj.db.setRetentionDays(obj.settings.retentionDays);
+            obj.tracker.idleSeconds = obj.settings.activity.idleMinutes * 60;
             return obj.settings;
         }).catch(function (e) {
             console.log('CONNSTATS: could not read settings: ' + (e.message || e));
@@ -155,6 +218,11 @@ module.exports.connectionstats = function (parent) {
         obj.loadSettings().then(function () { return obj.restoreOpenSessions(); }).catch(function (e) {
             console.log('CONNSTATS: startup error: ' + (e.message || e));
         });
+        // heartbeats reach the store once a minute, so a crash loses at most a minute of active time
+        if (obj.meshServer.pluginHandler.connectionstats_flush != null) { try { clearInterval(obj.meshServer.pluginHandler.connectionstats_flush); } catch (e) { } }
+        var flush = setInterval(function () { obj.flushActivity(); }, 60000);
+        try { flush.unref(); } catch (e) { }
+        obj.meshServer.pluginHandler.connectionstats_flush = flush;
         console.log('CONNSTATS: plugin ' + PLUGIN_VERSION + ' started');
     };
 
@@ -211,8 +279,26 @@ module.exports.connectionstats = function (parent) {
         } catch (e) { console.log('CONNSTATS: event error: ' + (e.message || e)); }
     };
 
-    // Active time is folded in when a session closes (step 5 adds the heartbeats).
-    obj.finalizeActive = function (doc) { };
+    // Active time is folded into the document when a session closes; sessions never observed
+    // by a browser with the plugin keep active = null ("no data").
+    obj.finalizeActive = function (doc) {
+        if (!obj.tracker.has(doc._id)) return;
+        doc.active = obj.tracker.activeFor(doc._id, doc.start, doc.end);
+        doc.lastbeat = obj.tracker.lastBeat(doc._id);
+        obj.tracker.forget(doc._id);
+    };
+
+    obj.flushActivity = function () {
+        try {
+            obj.tracker.takeDirty().forEach(function (sid) {
+                var open = obj.pairer.open[sid.substring(2)];
+                if (open == null) { obj.tracker.forget(sid); return; }
+                var patch = { active: obj.tracker.activeFor(sid, open.start, null), lastbeat: obj.tracker.lastBeat(sid) };
+                open.active = patch.active; open.lastbeat = patch.lastbeat;
+                obj.db.updateSession(sid, patch).catch(function () { });
+            });
+        } catch (e) { console.log('CONNSTATS: flush error: ' + (e.message || e)); }
+    };
 
     // node and group names are stored with the session so history survives device deletion
     obj._nameCache = {};
@@ -241,7 +327,22 @@ module.exports.connectionstats = function (parent) {
     //  Messages from the web UI (action: 'plugin', plugin: 'connectionstats')
     // ------------------------------------------------------------------
     obj.serveraction = function (command, myparent, grandparent) {
+        var user = myparent.user;
+        if (user == null || obj.settings == null) return;
         switch (command.pluginaction) {
+            case 'beat':
+            case 'observe': {
+                if (!obj.settings.activity.enabled) break;
+                if (typeof command.nodeid != 'string' || command.nodeid.length > 300) break;
+                var kind = (['desktop', 'terminal', 'files'].indexOf(command.kind) >= 0) ? command.kind : null;
+                if (kind == null) break;
+                // the session belongs to this user on this node: no rights check needed beyond that
+                var open = obj.pairer.findOpen(user._id, command.nodeid, kind);
+                if (open == null) break;
+                if (command.pluginaction == 'beat') obj.tracker.beat(open._id, Date.now());
+                else if (!obj.tracker.has(open._id)) { obj.tracker.beats[open._id] = []; obj.tracker.dirty[open._id] = true; }
+                break;
+            }
             default: break;
         }
     };
