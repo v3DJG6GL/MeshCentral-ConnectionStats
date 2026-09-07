@@ -497,7 +497,7 @@ module.exports.connectionstats = function (parent) {
         var now = Date.now();
         var maxT = now + 366 * 86400000;   // nothing beyond a year ahead: a garbage timestamp would make Intl throw
         var end = Math.min(Math.max(intq(q.end, now), 0), maxT), start = Math.min(Math.max(intq(q.start, end - 7 * 86400000), 0), maxT);
-        if (end - start > 5 * 366 * 86400000) start = end - 5 * 366 * 86400000;   // five years at most per query
+        if (end - start > 10 * 366 * 86400000) start = end - 10 * 366 * 86400000;   // ten years at most per query
         if (end < start) { var t = start; start = end; end = t; }
         var tz = (typeof q.tz == 'string' && q.tz.length < 64) ? q.tz : 'UTC';
         var bucket = (obj.aggregate.BUCKETS.indexOf(q.bucket) >= 0) ? q.bucket : obj.aggregate.autoBucket(start, end);
@@ -510,6 +510,17 @@ module.exports.connectionstats = function (parent) {
             types: csv(q.types, 10), userids: csv(q.users, 200),
             includeGuests: (q.guests == '1'), compare: (q.compare == '1')
         };
+    };
+
+    // the oldest session the user may see under the current scope, types and users: the "All"
+    // preset starts there
+    obj.apiRange = function (user, q) {
+        var p = obj.parseQuery(q);
+        p.start = 0; p.end = Date.now();
+        return obj.perms.filterFor(user, p).then(function (f) {
+            if (f == null) return { error: 'Not allowed to see this scope', status: 403 };
+            return obj.db.firstSession(f).then(function (row) { return { oldest: row ? row.start : null }; });
+        });
     };
 
     obj.apiQuery = function (user, q) {
@@ -657,6 +668,7 @@ module.exports.connectionstats = function (parent) {
         else if (api == 'sessions') work = obj.apiSessions(user, req.query);
         else if (api == 'seq') work = Promise.resolve({ seq: obj.seq });
         else if (api == 'meta') work = obj.apiMeta(user);
+        else if (api == 'range') work = obj.apiRange(user, req.query);
         else { res.status(404).json({ error: 'unknown api' }); return; }
         work.then(function (r) {
             if (r != null && r.error != null) { res.status(r.status || 400).json({ error: r.error }); return; }

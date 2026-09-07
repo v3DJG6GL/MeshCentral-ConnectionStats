@@ -247,6 +247,11 @@ module.exports.CreateDB = function (meshserver) {
             var q = buildDocQuery(normFilter(filter));
             return ready().then(function () { return obj.sessionsFile.find(q).sort({ start: -1 }).toArray(); });
         };
+        // the oldest session matching the filter (range "All" on the dashboard), or null
+        obj.firstSession = function (filter) {
+            var q = buildDocQuery(normFilter(filter));
+            return ready().then(function () { return obj.sessionsFile.find(q).sort({ start: 1 }).limit(1).toArray(); }).then(function (r) { return r[0] || null; });
+        };
         obj.listSessions = function (filter, page) {
             var q = buildDocQuery(normFilter(filter)), p = normPage(page);
             return ready().then(function () { return obj.sessionsFile.countDocuments(q); })
@@ -324,6 +329,10 @@ module.exports.CreateDB = function (meshserver) {
     obj.findSessions = function (filter) {
         var q = buildDocQuery(normFilter(filter));
         return new Promise(function (resolve, reject) { obj.sessionsFile.find(q).sort({ start: -1 }).exec(cb(resolve, reject)); });
+    };
+    obj.firstSession = function (filter) {
+        var q = buildDocQuery(normFilter(filter));
+        return new Promise(function (resolve, reject) { obj.sessionsFile.find(q).sort({ start: 1 }).limit(1).exec(cb(resolve, reject)); }).then(function (r) { return (r && r[0]) || null; });
     };
     obj.listSessions = function (filter, page) {
         var q = buildDocQuery(normFilter(filter)), p = normPage(page);

@@ -34,10 +34,22 @@
         return ACTIVE_TYPES[x.type] ? '<td class="num dim" title="No input was reported for this session: it was not opened in this web UI, or active time was off">no data</td>' : '<td class="num dim" title="Active time is only measured for Desktop, Terminal and Files">&ndash;</td>';
     }
     var DAY = 86400000;
-    var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     var TZ = 'UTC';
     try { TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { }
+    // Dates follow the "Dates & Time" choice in MeshCentral's localization settings, which the
+    // main page keeps in localStorage as "loctag" (same origin, so it is readable here); "*" or
+    // nothing means the browser's own locale, exactly as MeshCentral's printDateTime does.
+    var LOC;
+    try { var lt = localStorage.getItem('loctag'); if (lt && lt != '*' && /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(lt)) LOC = lt; } catch (e) { }
+    function dtf(opts) { try { return new Intl.DateTimeFormat(LOC, opts); } catch (e) { return new Intl.DateTimeFormat(undefined, opts); } }
+    var F_DATE = dtf({ day: 'numeric', month: 'short', year: 'numeric' }),
+        F_DT = dtf({ weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        F_WDD = dtf({ weekday: 'short', day: 'numeric' }), F_DM = dtf({ day: 'numeric', month: 'short' }),
+        F_WDDM = dtf({ weekday: 'short', day: 'numeric', month: 'short' }), F_WDDMY = dtf({ weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+        F_M = dtf({ month: 'short' }), F_MY = dtf({ month: 'short', year: 'numeric' }), F_WD = dtf({ weekday: 'short' });
+    // 2023-01-01 was a Sunday; the arrays keep MeshCentral's Sunday-first weekday index
+    var DOW = [0, 1, 2, 3, 4, 5, 6].map(function (i) { return F_WD.format(new Date(2023, 0, 1 + i)); });
+    var MON = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(function (i) { return F_M.format(new Date(2023, i, 1)); });
 
     // ---------- helpers ----------
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -50,17 +62,17 @@
         var d = Math.floor(h / 24); return d + 'd ' + (h % 24) + 'h';
     }
     function fmtBytes(b) { b = b || 0; if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB'; return (b / 1073741824).toFixed(2) + ' GB'; }
-    function fmtDate(t) { var d = new Date(t); return d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear(); }
-    function fmtDT(t) { var d = new Date(t); return DOW[d.getDay()] + ' ' + d.getDate() + ' ' + MON[d.getMonth()] + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
+    function fmtDate(t) { return F_DATE.format(new Date(t)); }
+    function fmtDT(t) { return F_DT.format(new Date(t)); }
     function isoDay(t) { var d = new Date(t); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
     function sod(t) { var d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
-    function label(b, bucket) { var d = new Date(b.s); if (bucket == 'hour') return p2(d.getHours()) + ':00'; if (bucket == 'day') return DOW[d.getDay()] + ' ' + d.getDate(); if (bucket == 'week') return d.getDate() + ' ' + MON[d.getMonth()]; return MON[d.getMonth()] + (d.getMonth() == 0 ? ' ' + d.getFullYear() : ''); }
+    function label(b, bucket) { var d = new Date(b.s); if (bucket == 'hour') return p2(d.getHours()) + ':00'; if (bucket == 'day') return F_WDD.format(d); if (bucket == 'week') return F_DM.format(d); return d.getMonth() == 0 ? F_MY.format(d) : F_M.format(d); }
     function longLabel(b, bucket) {
         var d = new Date(b.s);
-        if (bucket == 'hour') return DOW[d.getDay()] + ' ' + d.getDate() + ' ' + MON[d.getMonth()] + ', ' + p2(d.getHours()) + ':00 to ' + p2(new Date(b.e).getHours()) + ':00';
-        if (bucket == 'day') return DOW[d.getDay()] + ' ' + d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear();
+        if (bucket == 'hour') return F_WDDM.format(d) + ', ' + p2(d.getHours()) + ':00 to ' + p2(new Date(b.e).getHours()) + ':00';
+        if (bucket == 'day') return F_WDDMY.format(d);
         if (bucket == 'week') return 'Week of ' + fmtDate(b.s);
-        return MON[d.getMonth()] + ' ' + d.getFullYear();
+        return F_MY.format(d);
     }
     function get(url) {
         return fetch(url, { credentials: 'same-origin' }).then(function (r) {
@@ -81,10 +93,13 @@
         { k: 'lastmonth', n: 'Last month', range: function () { var d = new Date(NOW()); return [new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime(), new Date(d.getFullYear(), d.getMonth(), 1).getTime()]; } },
         { k: 'ytd', n: 'Year to date', range: function () { var d = new Date(NOW()); return [new Date(d.getFullYear(), 0, 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()]; } },
         { k: 'year', n: 'Last 12 months', range: function () { var d = new Date(NOW()); return [new Date(d.getFullYear() - 1, d.getMonth() + 1, 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()]; } },
+        // from the oldest recorded session (api=range, fetched by load) to the end of today
+        { k: 'all', n: 'All', range: function () { var b = sod(NOW()) + DAY; return [ALL_START || sod(NOW()), b]; } },
         { k: 'custom', n: 'Custom', range: null }
     ];
     var PRESET = {}; PRESETS.forEach(function (p) { PRESET[p.k] = p; });
-    var MAIN_PRESETS = COMPACT ? ['today', 'week', 'month', 'year', 'custom'] : ['today', 'week', 'month', 'thismonth', 'year', 'custom'];
+    var MAIN_PRESETS = COMPACT ? ['today', 'week', 'month', 'year', 'all', 'custom'] : ['today', 'week', 'month', 'thismonth', 'year', 'all', 'custom'];
+    var ALL_START = 0;
 
     // ---------- state ----------
     var S = {
@@ -125,16 +140,23 @@
     }
     function activeTypes() { return TYPES.filter(function (t) { return S.types[t.k]; }).map(function (t) { return t.k; }); }
     function queryParams() {
-        return { start: S.start, end: S.end, tz: TZ, scope: S.scope, types: (activeTypes().length == TYPES.length) ? null : activeTypes().join(','), users: S.users.join(',') || null, bucket: S.bucket == 'auto' ? null : S.bucket, compare: S.compare ? '1' : '0', guests: S.guests ? '1' : '0' };
+        // "All" has nothing before it to compare with
+        return { start: S.start, end: S.end, tz: TZ, scope: S.scope, types: (activeTypes().length == TYPES.length) ? null : activeTypes().join(','), users: S.users.join(',') || null, bucket: S.bucket == 'auto' ? null : S.bucket, compare: (S.compare && S.preset != 'all') ? '1' : '0', guests: S.guests ? '1' : '0' };
     }
 
     // ---------- data ----------
     function load() {
         writeHash();
         LOADING = true; ERR = null; render();
-        var qp = queryParams(); qp.limit = S.limit;
-        var work = [get(API + '&api=query&' + qs(qp))];
-        get(API + '&api=query&' + qs(qp)).then(function (d) {
+        var pre = Promise.resolve();
+        if (S.preset == 'all') {
+            var rp = queryParams(); delete rp.start; delete rp.end; delete rp.bucket; delete rp.compare;
+            pre = get(API + '&api=range&' + qs(rp)).then(function (r) { ALL_START = r.oldest ? sod(r.oldest) : 0; applyPreset(); writeHash(); });
+        }
+        pre.then(function () {
+            var qp = queryParams(); qp.limit = S.limit;
+            return get(API + '&api=query&' + qs(qp));
+        }).then(function (d) {
             DATA = d; LIST = d.sessions; S.skip = 0; S.sel = null; S.pc = null; DAYLIST = null;
             if (d.aggregate.bucket == 'hour') {
                 var lp = queryParams(); lp.limit = 500;
@@ -273,12 +295,13 @@
         var fd = new Date(daily.length ? daily[0].s : start), startCol = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate() - ((fd.getDay() + 6) % 7)).getTime();
         var byDay = {}; daily.forEach(function (d) { byDay[isoDay(d.s)] = d; });
         var weeks = Math.ceil((end - startCol) / (7 * DAY)) + 1, cs = 12, gap = 2, W = 30 + weeks * (cs + gap), H = 20 + 7 * (cs + gap);
-        var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + Math.min(W, 1400) + 'px;max-width:' + W + 'px" role="img" aria-label="Connected time per day">', lastM = -1;
+        var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + Math.min(W, 1400) + 'px;max-width:' + W + 'px" role="img" aria-label="Connected time per day">', lastM = -1, lastLW = -9;
         for (var w = 0; w < weeks; w++) for (var d = 0; d < 7; d++) {
             var dt = new Date(startCol); dt.setDate(dt.getDate() + w * 7 + d); var t = dt.getTime();
             if (t < start || t >= end) continue;
             var rec = byDay[isoDay(t)], v = rec ? rec.tot : 0;
-            if (dt.getMonth() != lastM && d == 0) { lastM = dt.getMonth(); s += '<text class="ax" x="' + (30 + w * (cs + gap)) + '" y="10">' + MON[lastM] + '</text>'; }
+            // one label per month, skipped when the previous one is less than three columns away (a range that starts late in a month)
+            if (dt.getMonth() != lastM && d == 0) { lastM = dt.getMonth(); if (w - lastLW >= 3) { lastLW = w; s += '<text class="ax" x="' + (30 + w * (cs + gap)) + '" y="10">' + MON[lastM] + '</text>'; } }
             var op = v ? .2 + .8 * Math.sqrt(v / max) : 0;
             s += '<rect x="' + (30 + w * (cs + gap)) + '" y="' + (18 + d * (cs + gap)) + '" width="' + cs + '" height="' + cs + '" rx="2" fill="' + (v ? 'var(--nav)' : 'var(--r2)') + '" opacity="' + (v ? op.toFixed(2) : 1) + '"><title>' + fmtDate(t) + ', ' + (v ? fmtDur(v) : 'no sessions') + '</title></rect>';
         }
@@ -340,7 +363,8 @@
         h += '<span class="cs-right"><span class="cs-seg" role="group" aria-label="Period">' + MAIN_PRESETS.map(function (k) { return '<button data-preset="' + k + '" class="' + (S.preset == k ? 'on' : '') + '">' + PRESET[k].n + '</button>'; }).join('') + '</span>';
         if (S.preset == 'custom') h += '<span class="cs-custom"><input class="cs-in" type="date" data-date="start" value="' + isoDay(S.start) + '" aria-label="From"> to <input class="cs-in" type="date" data-date="end" value="' + isoDay(S.end - 1) + '" aria-label="To"></span>';
         h += '<select class="cs-sel" data-pick="bucket" aria-label="Granularity"><option value="auto"' + (S.bucket == 'auto' ? ' selected' : '') + '>Auto</option>' + ['hour', 'day', 'week', 'month'].map(function (b) { return '<option value="' + b + '"' + (S.bucket == b ? ' selected' : '') + '>By ' + b + '</option>'; }).join('') + '</select>';
-        h += '<button class="cs-btn' + (S.compare ? ' on' : '') + '" data-compare aria-pressed="' + S.compare + '">Compare</button>';
+        var noCmp = (S.preset == 'all');
+        h += '<button class="cs-btn' + (S.compare && !noCmp ? ' on' : '') + '" data-compare aria-pressed="' + (S.compare && !noCmp) + '"' + (noCmp ? ' disabled title="There is nothing before the oldest session to compare with"' : '') + '>Compare</button>';
         h += '<span class="cs-menu-wrap"><button class="cs-btn primary" data-act="menu" aria-haspopup="true" aria-expanded="' + MENU + '">Export</button>' + (MENU ? exportMenu() : '') + '</span>';
         if (BOOT.isAdmin && !COMPACT) h += '<a class="cs-btn" href="' + API + '&view=settings" title="Retention, recorded types, active time, import">Settings</a>';
         h += '</span></div>';

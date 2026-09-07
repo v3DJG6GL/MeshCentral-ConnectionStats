@@ -8,7 +8,7 @@ How long you were remoted into each device, split by Desktop, Terminal, Files an
 
 | Where | What |
 | --- | --- |
-| My Server > Plugins > Connection Stats | The full dashboard: scope (all devices, a group, a device), connection type chips, admin filter, period presets and a custom range, granularity by hour, day, week or month, comparison with the previous period, totals, the time chart, share by type, top devices or groups, a weekday-by-hour punchcard coloured by type that filters the list, a calendar heatmap for long ranges, a per-device timeline for a single day, and a paged session list. |
+| My Server > Plugins > Connection Stats | The full dashboard: scope (all devices, a group, a device), connection type chips, admin filter, period presets from today to everything ever recorded and a custom range, granularity by hour, day, week or month, comparison with the previous period, totals, the time chart, share by type, top devices or groups, a weekday-by-hour punchcard coloured by type that filters the list, a calendar heatmap for long ranges, a per-device timeline for a single day, and a paged session list. |
 | Device page > Plugins > Connection Stats | The same dashboard scoped to that device. |
 | Export menu | Sessions as CSV or JSON, totals per bucket as CSV, the chart as PNG, print or save as PDF, copy a link to the current view. |
 | Settings (site admins) | Retention, minimum session length, which types to record, active-time measurement, import of past sessions from MeshCentral's event log, import from MeshCentral backups. |
@@ -69,7 +69,7 @@ Tested with the classic web UI. The Bootstrap UI uses the same plugin hooks and 
 ## Notes
 
 - A session whose start or end the plugin did not see (server restart, plugin installed mid-session) is kept with the length MeshCentral reported and marked with an asterisk in the list.
-- Times are shown in your browser's time zone. A session that crosses midnight gives each day its share, and daylight-saving days are 23 or 25 hours long as they should be.
+- Dates follow the "Dates & Time" locale from My Account > Localization Settings, like the rest of MeshCentral; times are shown in your browser's time zone. A session that crosses midnight gives each day its share, and daylight-saving days are 23 or 25 hours long as they should be.
 - Exports use ISO 8601 timestamps with offset and integer seconds. The first line of a CSV records the filters, the time zone, the user and the plugin version.
 - Desktop multiplexing (several admins on one desktop) is counted per viewer.
 

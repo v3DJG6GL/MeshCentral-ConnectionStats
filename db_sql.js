@@ -357,6 +357,11 @@ function install(obj, meshserver, kind, shared) {
         return ready().then(function () { return D.query('SELECT * FROM ' + T_SES + ' WHERE ' + w.sql + ' ORDER BY start_ms DESC', w.params); })
         .then(function (r) { return r.rows.map(rowToSession); });
     };
+    obj.firstSession = function (filter) {
+        var w = buildWhere(shared.normFilter(filter), D);
+        return ready().then(function () { return D.query('SELECT * FROM ' + T_SES + ' WHERE ' + w.sql + ' ORDER BY start_ms ASC LIMIT 1', w.params); })
+        .then(function (r) { return r.rows.length ? rowToSession(r.rows[0]) : null; });
+    };
     obj.listSessions = function (filter, page) {
         var w = buildWhere(shared.normFilter(filter), D), pg = shared.normPage(page);
         return ready().then(function () {

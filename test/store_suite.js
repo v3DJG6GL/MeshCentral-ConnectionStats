@@ -74,6 +74,9 @@ async function storeSuite(db, label) {
     const all = await db.listSessions({ domain: '', start: T - 20 * 86400000, end: T + 300000 }, { limit: 10, skip: 0 });
     assert.equal(all.rows[0]._id, 's_b', m('newest first'));
     assert.equal(all.rows[3]._id, 's_c', m('oldest last'));
+    const first = await db.firstSession({ domain: '', start: 0, end: T + 300000 });
+    assert.equal(first._id, 's_c', m('firstSession is the oldest'));
+    assert.equal(await db.firstSession({ domain: 'nope', start: 0, end: T + 300000 }), null, m('firstSession with no match'));
 
     // retention keeps recent and open sessions
     await db.upsertSession(doc('open-old', T - 30 * 86400000, null));

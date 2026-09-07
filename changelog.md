@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.6
+
+- **"All" period**: from the oldest recorded session in the current scope to
+  today, in month buckets. Comparison is off for it, there is nothing before.
+  A query may now span ten years instead of five.
+- **Dates follow MeshCentral's "Dates & Time" setting** (My Account >
+  Localization Settings), the same way MeshCentral's own pages do; without a
+  choice the browser's locale is used. Weekday and month names in the charts
+  follow it too.
+- The session list, the timeline tooltips and the import status show the
+  year, so a range from 2023 no longer reads like this year.
+- Month labels in the calendar heatmap no longer overlap when the range
+  starts late in a month.
+
 ## 0.2.5
 
 - **Backups from before MeshCentral 1.1.34 import again**: those name the
