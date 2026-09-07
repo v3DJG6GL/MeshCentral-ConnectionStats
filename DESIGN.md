@@ -152,63 +152,34 @@ shown, nothing is trimmed from stored sessions.
 - Settings: activity tracking on/off, idle threshold minutes, heartbeat
   interval. Heartbeats follow the session retention.
 
-## 4b. Kimai sync (optional, approved 2026-09-07)
+## 4b. Kimai integration (0.3.0)
 
-Reference: KimaiTray (github.com/Engazan/KimaiTray) for the client side;
-Kimai 2 REST API (kimai.org/documentation/rest-api.html).
+Implemented after review on 2026-09-07. See readme.md's Kimai section for setup,
+accounting behavior, recovery, and test instructions. This supersedes the original
+10-minute gap merging, automatic overlap trimming, and service-token proposal.
 
-Connection
-- Bearer API token (legacy X-AUTH headers are being removed from Kimai in
-  2026). Per-user token by default, stored encrypted server-side, never sent
-  back to the browser. Alternative: one service token with
-  `create_other_timesheet`, MeshCentral users mapped to Kimai users by e-mail.
-- Test: `GET /api/users/me` (also yields the user's time zone) and
-  `GET /api/version`. Warn if tracking mode is punch or fixed-begin, since
-  those ignore begin/end from the API.
-- Datetimes are sent as wall-clock `Y-m-dTH:i:s` in the Kimai user's zone;
-  Kimai ignores offsets. Responses come back with `+0200` style offsets.
-
-Blocks
-- Per admin, sessions that overlap or lie within the gap threshold (default
-  10 min) and map to the same project+activity merge into one work block.
-- Kimai rejects overlapping entries per user by default. Overlap policy for
-  blocks of different projects: trim earlier at later start (default), skip
-  and flag, or send as-is when `allow_overlapping_records` is on.
-- Duration per rule: connected time (default) or active time.
-- Round to whole minutes before sending, matching Kimai's default rounding.
-- Ongoing sessions wait for the session end.
-
-Mapping rules
-- Ordered, first match wins. Match on group, device, connection type, admin.
-  Target: customer, project, activity (cascading pickers from
-  `/api/customers`, `/api/projects?customer=&ignoreDates=1`,
-  `/api/activities?project=`), description template with placeholders
-  {device} {group} {types} {admin} {date} {sessions}, tags (comma string,
-  always includes `meshcentral`). Last rule is the fallback, may be
-  "do not sync".
-
-Push
-- `POST /api/timesheets` `{begin, end, project, activity, description, tags[, user]}`.
-- Idempotency: Kimai cannot take an external id on create. Keep
-  `kimai_blocks` {blockId, userid, begin, end, seconds, sessionIds, rule,
-  project, activity, kimaiId, hash, status, lastSync}. Re-sync = verify
-  `GET /api/timesheets/{id}` then `PATCH`, never a second POST. Block id is
-  also appended to the description as a marker so the map can be rebuilt by
-  listing the day (`GET /api/timesheets?begin=&end=&tags[]=meshcentral`).
-  If `GET /api/metafields` exists (Custom fields plugin), store the block id
-  in an `external_id` meta field via `PATCH /api/timesheets/{id}/meta`.
-- Entries with `exported=true` or inside a lockdown period are never
-  touched; shown as "locked in Kimai".
-- Errors: 400 form errors are surfaced per block in the sync log.
-
-Modes
-- Manual: "Send to Kimai" in the export menu, preview with per-row exclude.
-- Scheduled: nightly 02:00 for the previous day (recommended default).
-- Live timers (start/stop like KimaiTray): later, per-user opt-in only.
-
-Settings: enable, connection mode, rules, gap threshold, overlap policy,
-schedule. UI: Kimai page under the plugin settings with connection, rules
-table, preview, sync log.
+- One administrator-configured HTTPS server, personal encrypted tokens, and
+  per-user ordered group/device/type mapping rules. Each remote account has one
+  MeshCentral owner. Guests and other users' sessions cannot be sent.
+- Connected time unions overlapping or adjacent same-destination intervals but
+  preserves all disconnected gaps. Different destinations require review.
+- Active time is sent after disconnect as start plus measured duration. Missing
+  data and overlapping active measurements require an explicit reviewed duration.
+- Editable manual preview, optional nightly sync at 02:00 in the account timezone,
+  and optional automatic live timers. Both automation modes default off.
+- Daily completed entries; live timers can cross midnight and split on closure.
+  Foreign timers are untouched. Uncertain end times require review.
+- A durable per-user index plus separate block documents in the common settings
+  store preserve identity across retention, retries, restarts, and all sync modes.
+  Persist operations before remote writes and reconcile uncertain responses using
+  stable description markers. Never blindly retry a create.
+- Preserve remote edits; user can keep the Kimai version or review a replacement.
+  Locked/exported entries are not overwritten. Remote deletions, changed membership,
+  and uncertain creates are surfaced for review.
+- Bearer authentication, certificate verification, no redirect following, encrypted
+  tokens with a separate 0600 key, user/domain scope checks and CSRF tokens for all
+  mutation endpoints. Read current account/timezone/tracking mode before syncing.
+- Service accounts, per-user servers and custom-field plugins remain deferred.
 
 ## 5. Data model and storage
 

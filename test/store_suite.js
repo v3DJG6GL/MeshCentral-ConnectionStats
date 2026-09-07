@@ -91,6 +91,15 @@ async function storeSuite(db, label) {
     assert.notEqual(await db.getSession('s_a'), null);
     await db.removeSession('s_open-old');
 
+    // Kimai ownership/ledger documents use the shared settings store on every backend.
+    const kimaiKey = 'kimai:user:' + 'a'.repeat(64) + ':block:' + 'b'.repeat(64);
+    const kimaiBlock = { id: 'b'.repeat(64), source: ['s_a'], marker: 'meshcentral:test', status: 'creating', pendingRequest: { begin: '2026-01-05T10:00:00', end: null }, last: null };
+    await db.setSetting(kimaiKey, kimaiBlock);
+    await db.upsertSession(doc('kimai-expired', T - 20 * 86400000, T - 20 * 86400000 + 1000));
+    await db.sweepRetention(5);
+    assert.equal(await db.getSession('s_kimai-expired'), null, m('Kimai source session expired'));
+    assert.deepEqual(await db.getSetting(kimaiKey), kimaiBlock, m('Kimai ledger survives session retention'));
+
     // settings and version
     await db.setSetting('settings', { retentionDays: 30, nested: { a: 1 }, text: 'Grüezi' });
     assert.deepEqual(await db.getSetting('settings'), { retentionDays: 30, nested: { a: 1 }, text: 'Grüezi' }, m('settings'));

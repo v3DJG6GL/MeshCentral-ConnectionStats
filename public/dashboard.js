@@ -7,6 +7,7 @@
 (function () {
     'use strict';
     var BOOT = window.CS_BOOT || {};
+    if (BOOT.view === 'kimai') return;
     var API = 'pluginadmin.ashx?pin=connectionstats';
     var COMPACT = (BOOT.view == 'device');
     var TYPES = [
@@ -425,6 +426,7 @@
         var noCmp = (S.preset == 'all');
         h += '<button class="cs-btn' + (S.compare && !noCmp ? ' on' : '') + '" data-compare aria-pressed="' + (S.compare && !noCmp) + '"' + (noCmp ? ' disabled title="There is nothing before the oldest session to compare with"' : '') + '>Compare</button>';
         h += '<span class="cs-menu-wrap"><button class="cs-btn primary" data-act="menu" aria-haspopup="true" aria-expanded="' + MENU + '">Export</button>' + (MENU ? exportMenu() : '') + '</span>';
+        if (!COMPACT) h += '<a class="cs-btn" href="' + API + '&view=kimai">Kimai</a>';
         if (BOOT.isAdmin && !COMPACT) h += '<a class="cs-btn" href="' + API + '&view=settings" title="Retention, recorded types, active time, import">Settings</a>';
         h += '</span></div>';
         return h;
@@ -519,7 +521,7 @@
         postForm({ action: 'settings', settings: JSON.stringify(st) }).then(function (j) { SET.settings = j.settings; SETMSG = 'Saved.'; render(); }).catch(function (e) { SETMSG = e.message; render(); });
     }
     function exportMenu() {
-        return '<div class="cs-menu" role="menu">' + (window.CS_EXPORT_ITEMS ? window.CS_EXPORT_ITEMS() : '') +
+        return '<div class="cs-menu" role="menu"><a class="cs-btn" href="' + API + '&view=kimai#' + qs(queryParams()) + '">Send to Kimai</a>' + (window.CS_EXPORT_ITEMS ? window.CS_EXPORT_ITEMS() : '') +
             '<button role="menuitem" data-act="print">Print or save as PDF<small>Whole page, print layout</small></button>' +
             '<hr><button role="menuitem" data-act="copylink">Copy link to this view</button></div>';
     }

@@ -1,3 +1,15 @@
+## 0.3.0 — 2026-09-07
+
+- Add personal Kimai connections, ordered mapping rules, editable export previews,
+  shared live timers, optional nightly sync, and per-entry synchronization history.
+- Preserve connected intervals and gaps; support reviewed active-time durations,
+  midnight splitting, overlap conflicts, remote edits, and locked entries.
+- Add encrypted token storage and a durable cross-backend synchronization ledger,
+  with marker reconciliation for uncertain creates/updates and ownership checks.
+- Restore the startup heartbeat flush that was unreachable after an early return.
+- Validate unit/recovery behavior, all database backends, browser UI, and the real
+  HTTPS API against a disposable Kimai 2.66.0 instance.
+
 # Changelog
 
 ## 0.2.15

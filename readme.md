@@ -93,3 +93,88 @@ additionally runs the store contract, the retention sweep and an end-to-end rela
 ## License
 
 Apache-2.0
+
+## Kimai integration (0.3.0)
+
+Open **Kimai** from the dashboard. A site administrator first configures one HTTPS
+Kimai base URL. Each user then supplies a personal Bearer API token using **Test
+and save token**. One Kimai account can be linked to one MeshCentral user. The
+connection checks the current user, timezone, version, timesheet configuration,
+and API read access. Tested with Kimai 2.66.0. Default and duration tracking modes
+are supported; incompatible modes and ambiguous daylight-saving timestamps are
+reported rather than silently converted. API create/update permissions are also
+required; permission and lockdown failures appear in the sync history.
+
+Configure ordered rules matching group, device and connection type. Select a
+customer, project, activity, connected/active time, billable status, description,
+and tags. The first matching rule wins; unmatched and guest sessions are excluded.
+Description placeholders: `{device}`, `{group}`, `{types}`, `{admin}`, `{date}`,
+`{sessions}`. The `meshcentral` tag and a stable description marker identify entries.
+Do not remove markers while an entry is managed by the integration.
+
+Use **Export → Send to Kimai** to preview the current range and filters. Only your
+own currently permitted sessions are included. Sessions intersecting the range
+are included in full and split at midnight in your Kimai timezone. Preview is
+limited to 2,000 entries / 20,000 source sessions; use smaller ranges for a large
+historical import. Adjust times, destinations and descriptions, exclude rows, and
+review flagged entries before sending. Seconds are preserved; differences in the
+duration returned by Kimai (including configured rounding) are shown in history.
+
+Connected-time rules merge overlapping/adjacent intervals for the same destination
+and billing choice, without counting overlap twice or filling disconnected gaps.
+Active-time entries are sent only after disconnect: begin is the session start,
+end is begin plus the measured duration. They do not represent exact activity
+instants. Missing measurements and overlapping activity require a reviewed duration;
+there is no automatic fallback to connected time.
+
+**Both automation options start disabled.** Live sync starts a shared timer for
+matching connected-time sessions and stops it after the last disconnect. Timers
+running across midnight are split into daily entries when they close. Existing
+foreign timers are never stopped or overwritten. Conflicting projects, uncertain
+end times, or remote edits require review. Active-time rules and short sessions
+that closed before a timer could start are processed after disconnect.
+
+Nightly sync runs after 02:00 in your Kimai timezone. It includes the previous day,
+late closures and outstanding work since enabling sync; backup/backfill history
+requires manual preview. Failed requests are retried with a five-minute delay.
+All modes share a durable ledger, so repeat exports do not create duplicates.
+Remote edits and deletions are flagged. **Keep Kimai version** relinquishes updates;
+**Review replacement** lets you explicitly review a replacement or a retry after
+checking Kimai. Locked/exported entries remain untouched. An uncertain create is
+reconciled by its marker before any automatic retry; absence of a marker requires
+explicit review. Changed source membership is flagged instead of creating another
+entry. A reviewed send can update a single existing block that contains the original
+sources. Cases spanning multiple existing blocks require reconciliation in Kimai.
+
+### Token and state backups
+
+Tokens are encrypted using AES-256-GCM. The random 32-byte key is stored in
+`meshcentral-data/plugin-connectionstats-kimai.key` (or MeshCentral's configured
+config-file directory), created with permissions `0600`. Back up this key securely
+alongside the plugin database; it is never returned through the plugin API. A
+missing/corrupt key fails closed: restore it or reconnect personal tokens. Never
+replace the key while tokens encrypted with it are still needed.
+
+Personal configuration, operation state and individual block records use the
+plugin's existing settings store on NeDB, MongoDB, PostgreSQL, MariaDB, MySQL and
+SQLite. The ledger is independent of session retention. Preserve it when restoring
+backups to avoid losing remote ownership. Changing the server URL requires users
+to reconnect; an existing ledger cannot be reassigned to another server/account.
+
+### Integration tests
+
+`npm test` runs unit/regression tests; `test/live.sh` additionally exercises all
+supported database services in disposable Docker containers. For a disposable
+Kimai instance, run:
+
+```sh
+CS_TEST_KIMAI_URL=https://your-test-instance \
+CS_TEST_KIMAI_TOKEN=your-test-token \
+node test/kimai_live.test.js
+```
+
+This test creates and deletes a test customer, project, activity and timesheets.
+Use a dedicated test instance/account with those permissions. It exercises the
+real HTTPS client, connection setup, preview, create/update, and live timers.
+Automation should remain disabled on a deployment until connection testing and a
+small manual preview/send have succeeded against that installation.

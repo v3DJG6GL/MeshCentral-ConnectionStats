@@ -222,13 +222,19 @@ module.exports.connectionstats = function (parent) {
         obj.ready = obj.loadSettings().then(function () { return obj.retypeOnce(); }).then(function () { return obj.restoreOpenSessions(); }).then(function () { return obj.maybeAutoBackfill(); }).catch(function (e) {
             console.log('CONNSTATS: startup error: ' + (e.message || e));
         });
-        return obj.ready;
+        var previousKimai = obj.meshServer.pluginHandler.connectionstats_kimai;
+        if (previousKimai) previousKimai.close();
+        obj.kimai = new (require('./kimai').Service)(obj);
+        if (previousKimai) obj.kimai.locks = previousKimai.locks;
+        obj.meshServer.pluginHandler.connectionstats_kimai = obj.kimai;
+        obj.ready.then(function () { obj.kimai.start(); });
         // heartbeats reach the store once a minute, so a crash loses at most a minute of active time
         if (obj.meshServer.pluginHandler.connectionstats_flush != null) { try { clearInterval(obj.meshServer.pluginHandler.connectionstats_flush); } catch (e) { } }
         var flush = setInterval(function () { obj.flushActivity(); }, 60000);
         try { flush.unref(); } catch (e) { }
         obj.meshServer.pluginHandler.connectionstats_flush = flush;
         console.log('CONNSTATS: plugin ' + PLUGIN_VERSION + ' started');
+        return obj.ready;
     };
 
     // 0.2.2 split "Other" into port tunnels (no protocol) and plugin tunnels (protocol 7). Records
@@ -387,7 +393,7 @@ module.exports.connectionstats = function (parent) {
     // ------------------------------------------------------------------
     // bumps whenever a session is written, so the page can notice changes cheaply (api=seq)
     obj.seq = 0;
-    function wrote(p) { return p.then(function (r) { obj.seq++; return r; }); }
+    function wrote(p) { return p.then(function (r) { obj.seq++; if (obj.kimai) obj.kimai.kick(); return r; }); }
 
     obj.HandleEvent = function (source, event, ids, id) {
         try {
@@ -670,7 +676,9 @@ module.exports.connectionstats = function (parent) {
         var api = String(req.query.api);
         if (api == 'export') { obj.apiExport(req, res, user); return; }
         var work;
-        if (api == 'query') work = obj.apiQuery(user, req.query);
+        if (api == 'kimai') work = obj.kimai.info(user);
+        else if (api == 'kimai-destinations') work = obj.kimai.destinations(user, req.query.kind, req.query.parent);
+        else if (api == 'query') work = obj.apiQuery(user, req.query);
         else if (api == 'settings') work = Promise.resolve(obj.isAdmin(user) ? { settings: obj.settings, backfill: obj.backfillInfo(), types: obj.events.TYPES, version: PLUGIN_VERSION } : { error: 'Site administrators only', status: 403 });
         else if (api == 'backfill') work = Promise.resolve(obj.isAdmin(user) ? obj.backfillInfo() : { error: 'Site administrators only', status: 403 });
         else if (api == 'restore') work = Promise.resolve(obj.isAdmin(user) ? obj.restoreInfo() : { error: 'Site administrators only', status: 403 });
@@ -685,6 +693,7 @@ module.exports.connectionstats = function (parent) {
             res.set('Cache-Control', 'no-store');
             res.json(r);
         }).catch(function (e) {
+            if (api === 'kimai' || api === 'kimai-destinations') { res.status(400).json({ error: e.message || 'Kimai request failed' }); return; }
             console.log('CONNSTATS: api error: ' + (e && e.stack ? e.stack : e));
             res.status(500).json({ error: 'internal error' });
         });
@@ -692,7 +701,7 @@ module.exports.connectionstats = function (parent) {
 
     // Static files of the page. There is no static-file plumbing for plugins in MeshCentral, so
     // the page fetches them from this same authenticated URL. Strict whitelist.
-    var FILES = { 'dashboard.js': 'application/javascript; charset=utf-8', 'connectionstats.css': 'text/css; charset=utf-8', 'export.js': 'application/javascript; charset=utf-8' };
+    var FILES = { 'kimai.js': 'application/javascript; charset=utf-8', 'dashboard.js': 'application/javascript; charset=utf-8', 'connectionstats.css': 'text/css; charset=utf-8', 'export.js': 'application/javascript; charset=utf-8' };
     obj.serveFile = function (req, res) {
         var name = String(req.query.file);
         if (FILES[name] == null) { res.sendStatus(404); return; }
@@ -722,6 +731,7 @@ module.exports.connectionstats = function (parent) {
             boot.scope = req.query.scope;
         }
         if (req.query.view == 'settings') boot.view = 'settings';
+        if (req.query.view == 'kimai') boot.view = 'kimai';
         try {
             if (pageCache == null || obj.meshServer.args.debug) pageCache = require('fs').readFileSync(require('path').join(__dirname, 'views', 'admin.handlebars')).toString();
             var html = pageCache.replace('{{{bootJson}}}', JSON.stringify(boot).replace(/</g, '\\u003c'));
@@ -733,6 +743,14 @@ module.exports.connectionstats = function (parent) {
 
     // Settings and backfill changes come as form posts from the settings page. Site admins only.
     obj.handleAdminPostReq = function (req, res, user) {
+        if (req.body && req.body.action === 'kimai') {
+            res.set('Cache-Control', 'no-store');
+            if (!user || !obj.kimai || req.body.csrf !== obj.kimai.nonce(user)) { res.status(403).json({ error: 'Invalid request token; reload the Kimai page' }); return; }
+            var data;
+            try { data = JSON.parse(String(req.body.data || '{}')); } catch (e) { res.status(400).json({ error: 'Invalid Kimai request' }); return; }
+            obj.kimai.action(user, data).then(function (r) { res.json(r); }, function (e) { res.status(400).json({ error: e.message }); });
+            return;
+        }
         if (!obj.isAdmin(user)) { res.sendStatus(401); return; }
         if (obj.db == null) { res.status(503).json({ ok: false, error: 'Connection Stats is still starting' }); return; }
         if (/^multipart\/form-data/i.test(String(req.headers['content-type'] || ''))) { obj.handleUpload(req, res); return; }

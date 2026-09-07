@@ -158,3 +158,17 @@ a.cs-btn { text-decoration: none; display: inline-block; }
 .cs-where:hover, .cs-where:focus-visible { outline: 1px solid var(--axis); outline-offset: 1px; }
 
 .cs .cs-pc-grid { pointer-events: none; vector-effect: non-scaling-stroke; }
+
+/* Personal Kimai configuration */
+.km-panel { margin:16px 0; padding:16px; border:1px solid var(--r); border-radius:6px; }
+.km-panel h2 { font-size:16px; margin-top:0; }
+.km-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.km-fields label { display:flex; flex-direction:column; gap:4px; }
+.km-rule { margin:12px 0; padding:12px; border:1px solid var(--r); }
+.km-rule button { margin-top:12px; }
+.km-table { overflow-x:auto; }
+.km-table table { width:100%; border-collapse:collapse; }
+.km-table th,.km-table td { text-align:left; padding:8px; border-bottom:1px solid var(--r); vertical-align:top; }
+.km-table td input:not([type=checkbox]),.km-table td select { display:block; margin-bottom:6px; min-width:150px; }
+.km-panel input,.km-panel select,.km-panel button { color:inherit; background:var(--p); border:1px solid var(--r); border-radius:4px; padding:6px; }
+.km-panel input[type=checkbox] { min-width:auto; }
