@@ -84,8 +84,9 @@ button { font: inherit; }
 .cs-tl .row .tr { position: relative; height: 12px; background: var(--r2); border-radius: 2px; }
 .cs-tl .row .tr i { position: absolute; top: 0; height: 100%; border-radius: 2px; min-width: 2px; }
 .cs-tl .row .tr i.live { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
-.cs-tl .hrs { display: grid; grid-template-columns: 120px minmax(0, 1fr); font-size: 10px; color: var(--m); }
-.cs-tl .hrs div:last-child { display: flex; justify-content: space-between; }
+.cs-tl .hrs { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: 10px; color: var(--m); }
+.cs-tl .hrs div:last-child { position: relative; height: 16px; }
+.cs-tl .hrs span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .cs-tscroll { overflow-x: auto; }
 /* on the admin page the dashboard fills the frame; when space runs out the session table scrolls inside its card */
 .cs-full { height: calc(100vh - 16px); box-sizing: border-box; overflow: auto; }

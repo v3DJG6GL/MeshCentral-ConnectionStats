@@ -211,6 +211,25 @@
     var lastW = 0;
     window.addEventListener('resize', function () { var w = root.clientWidth; if (w && w != lastW && DATA) { lastW = w; render(); } });
     function niceMax(v) { if (v <= 0) return 1; var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10)); var m = v / e; var n = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10; return n * e; }
+    var axisMeasure;
+    function axisTicks(candidates, width) {
+        if (axisMeasure === undefined) {
+            try { axisMeasure = document.createElement('canvas').getContext('2d'); axisMeasure.font = '10px Arial'; } catch (e) { axisMeasure = null; }
+        }
+        var right = -Infinity;
+        return candidates.filter(function (tick) {
+            var w = axisMeasure ? axisMeasure.measureText(tick.text).width : tick.text.length * 6;
+            // Keep the labels within the plot and leave a small gap between neighbours.
+            tick.x = Math.max(w / 2, Math.min(tick.x, width - w / 2));
+            if (tick.x - w / 2 < right + 6) return false;
+            right = tick.x + w / 2; return true;
+        });
+    }
+    function timeAxisLabel(t, start, end) {
+        var time = label({ s: t }, 'hour');
+        if (end - start > 3 * DAY) return F_DM.format(new Date(t));
+        return isoDay(start) != isoDay(end - 1) ? F_DM.format(new Date(t)) + ' ' + time : time;
+    }
     function stackedBars(a, prev, sel) {
         var W = mainW(), H = 200, L = 38, R = 8, T = 12, B = 26, bk = a.buckets, n = bk.length, bucket = a.bucket;
         if (!n) return '';
@@ -220,7 +239,8 @@
         var iw = (W - L - R) / n, bw = Math.max(2, iw * (n > 31 ? .7 : .62));
         var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Connected time per ' + bucket + ' by connection type">';
         ticks.forEach(function (t) { var y = T + (H - T - B) * (1 - t / maxU); s += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '"/><text class="ax" x="' + (L - 5) + '" y="' + (y + 3.5) + '" text-anchor="end">' + tick(t) + '</text>'; });
-        var every = n > 31 ? Math.ceil(n / 12) : n > 14 ? Math.ceil(n / 10) : 1;
+        var axis = [];
+        var datedHours = bucket == 'hour' && a.end - a.start > 3 * DAY;
         bk.forEach(function (b, i) {
             var x = L + iw * i + (iw - bw) / 2, y = H - B, d = new Date(b.s);
             var weekend = bucket == 'day' && (d.getDay() == 0 || d.getDay() == 6);
@@ -230,8 +250,9 @@
                 var dim = sel && !(sel.i == i && sel.t == t.k);
                 s += '<rect class="bar' + (dim ? ' dim' : '') + '" data-i="' + i + '" data-t="' + t.k + '" tabindex="0" role="button" aria-label="' + esc(longLabel(b, bucket)) + ', ' + t.n + ', ' + fmtDur(v) + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(h, 0.5).toFixed(1) + '" fill="' + t.c + '"></rect>';
             });
-            if (i % every == 0) s += '<text class="ax" x="' + (L + iw * i + iw / 2) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(label(b, bucket)) + '</text>';
+            if (!datedHours || (d.getHours() == 0 && d.getMinutes() == 0)) axis.push({ x: iw * i + iw / 2, text: bucket == 'hour' ? timeAxisLabel(b.s, a.start, a.end) : label(b, bucket) });
         });
+        axisTicks(axis, W - L - R).forEach(function (tick) { s += '<text class="ax cs-time-tick" x="' + (L + tick.x) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(tick.text) + '</text>'; });
         if (prev && prev.buckets.length) {
             var pts = prev.buckets.map(function (b, i) { if (i >= n) return null; var y = T + (H - T - B) * (1 - (b.tot / unit) / maxU); return (L + iw * i + iw / 2).toFixed(1) + ',' + y.toFixed(1); }).filter(Boolean);
             s += '<polyline class="prev" points="' + pts.join(' ') + '"><title>Previous period total</title></polyline>';
@@ -314,8 +335,18 @@
     function timeline(rows, start, end) {
         var devs = {}; rows.forEach(function (x) { devs[x.node] = (devs[x.node] || 0) + ((x.end || Date.now()) - x.start); });
         var keys = Object.keys(devs).sort(function (a, b) { return devs[b] - devs[a]; }).slice(0, 10);
-        if (!keys.length) return '<div class="cs-note">No sessions on this day.</div>';
-        var s = '<div class="cs-tl"><div class="hrs"><div></div><div>' + [0, 3, 6, 9, 12, 15, 18, 21, 24].map(function (h) { return '<span>' + p2(h % 24) + ':00</span>'; }).join('') + '</div></div>';
+        if (!keys.length) return '<div class="cs-note">No sessions in this range.</div>';
+        var width = Math.max(120, fullW() - 128), candidates = [], d = new Date(start);
+        var byDate = end - start > 3 * DAY;
+        if (byDate) { d.setHours(0, 0, 0, 0); if (+d < start) d.setDate(d.getDate() + 1); }
+        else { d.setMinutes(0, 0, 0); if (+d < start) d.setTime(+d + 3600000); }
+        while (+d <= end) {
+            candidates.push({ x: (+d - start) / (end - start) * width, text: timeAxisLabel(+d, start, end) });
+            if (byDate) d.setDate(d.getDate() + 1); else d.setTime(+d + 3600000);
+        }
+        var s = '<div class="cs-tl"><div class="hrs"><div></div><div>' + axisTicks(candidates, width).map(function (tick) {
+            return '<span style="left:' + (tick.x / width * 100) + '%">' + esc(tick.text) + '</span>';
+        }).join('') + '</div></div>';
         keys.forEach(function (k) {
             s += '<div class="row"><div class="n" title="' + esc(k) + '">' + esc(k) + '</div><div class="tr">';
             rows.forEach(function (x) { if (x.node != k) return; var e = x.end == null ? Date.now() : x.end, a = Math.max(x.start, start), z = Math.min(e, end); if (z <= a) return; var l = (a - start) / (end - start) * 100, w = (z - a) / (end - start) * 100; s += '<i class="' + (x.end == null ? 'live' : '') + '" style="left:' + l.toFixed(2) + '%;width:' + w.toFixed(2) + '%;background:' + TYPE[x.type].c + '" title="' + TYPE[x.type].n + ', ' + fmtDT(x.start) + ', ' + fmtDur((z - a) / 1000) + '"></i>'; });

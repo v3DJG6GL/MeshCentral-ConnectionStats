@@ -5,16 +5,16 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('../public/dashboard.js'), 'utf8');
 
-function dashboard({ storage = new Map(), hash = '', boot = {} } = {}) {
+function dashboard({ storage = new Map(), hash = '', boot = {}, width = 1000, response } = {}) {
     const handlers = {}, inputs = [], timers = [];
-    const root = { innerHTML: '', clientWidth: 1000, addEventListener: (k, f) => { handlers[k] = f; }, querySelectorAll: () => inputs };
+    const root = { innerHTML: '', clientWidth: width, addEventListener: (k, f) => { handlers[k] = f; }, querySelectorAll: () => inputs };
     const document = { getElementById: () => root, documentElement: { classList: { toggle() {} } }, addEventListener() {}, activeElement: null };
     const location = { hash, pathname: '/pluginadmin.ashx' };
     const window = { CS_BOOT: { user: 'user//admin', ...boot }, addEventListener() {} };
     window.parent = window;
     vm.runInNewContext(source, { window, document, location, history: { replaceState: (_, __, h) => { location.hash = h; } },
         localStorage: { getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v) },
-        fetch: () => new Promise(() => {}), setInterval() {}, setTimeout: f => timers.push(f), Intl, Date });
+        fetch: response ? url => Promise.resolve({ ok: true, json: async () => response(url) }) : () => new Promise(() => {}), setInterval() {}, setTimeout: f => timers.push(f), Intl, Date });
     return { cs: window.CS, handlers, root, document, inputs, location, storage };
 }
 
@@ -86,4 +86,46 @@ test('chart hover and keyboard focus show an immediate tooltip and clear it on e
     assert.equal(tip.hidden, false);
     d.handlers.focusout();
     assert.equal(tip.hidden, true);
+});
+
+async function chart({ bucket, width = 2400, days = 30, start = new Date(2023, 11, 1).getTime() }) {
+    const end = new Date(start); end.setDate(end.getDate() + days);
+    const aggregate = require('../aggregate.js').aggregate([
+        { _id: 's_demo', start: start + 3600000, end: start + 7200000, type: 'desktop', nodeid: 'node//demo', nodename: 'Demo' }
+    ], { start, end: +end, bucket, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    const sessions = { rows: [{ node: 'Demo', start: start + 3600000, end: start + 7200000, type: 'desktop' }], total: 1 };
+    const d = dashboard({ width, storage: new Map([['loctag', 'de-CH']]),
+        hash: '#preset=custom&start=' + start + '&end=' + (+end) + '&bucket=' + bucket,
+        response: url => url.includes('api=meta') ? { devices: [], groups: [], users: [] } : url.includes('api=sessions') ? sessions : { aggregate, sessions }
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const labels = [...d.root.innerHTML.matchAll(/class="ax cs-time-tick"[^>]*>([^<]+)<\/text>/g)].map(m => m[1]);
+    return { ...d, labels };
+}
+
+test('day axis uses available width: all 30 dates on a wide chart, fewer on a narrow chart', async () => {
+    const wide = await chart({ bucket: 'day' });
+    const narrow = await chart({ bucket: 'day', width: 500 });
+    assert.equal(wide.labels.length, 30);
+    assert.match(wide.labels[0], /1\.12/);
+    assert.match(wide.labels[29], /30\.12/);
+    assert.ok(narrow.labels.length > 0 && narrow.labels.length < wide.labels.length);
+});
+
+test('month-long hourly charts and session timelines label dates instead of repeating clock times', async () => {
+    const d = await chart({ bucket: 'hour' });
+    assert.ok(d.labels.length >= 20);
+    assert.ok(d.labels.every(s => /\d+\.12/.test(s) && !s.includes(':')));
+    const timeline = d.root.innerHTML.split('<div class="hrs">')[1].split('<div class="row">')[0];
+    assert.match(timeline, /1\.12/);
+    assert.match(timeline, /30\.12/);
+    assert.doesNotMatch(timeline, /03:00/);
+});
+
+test('short hourly ranges show times, with date context when crossing midnight', async () => {
+    const single = await chart({ bucket: 'hour', days: 1 });
+    assert.ok(single.labels.every(s => /^\d\d:\d\d$/.test(s)));
+    const multi = await chart({ bucket: 'hour', days: 2 });
+    assert.ok(multi.labels.every(s => /\.12.*\d\d:\d\d/.test(s)));
+    assert.ok(multi.labels.some(s => /2\.12/.test(s)));
 });
