@@ -42,11 +42,13 @@ Manual install: clone this repository into `meshcentral-data/plugins/connections
 
 ## Storage
 
-Sessions are kept in the plugin's own store because MeshCentral's events expire after 20 days. The store follows MeshCentral's database: with PostgreSQL, MariaDB, MySQL or SQLite the sessions live in a `plugin_connectionstats_sessions` table inside MeshCentral's database; with MongoDB in a `plugin_connectionstats_sessions` collection; otherwise in `meshcentral-data/plugin-connectionstats-sessions.db`. Every backend is exercised by the test suite against a real server. Retention defaults to 365 days and never removes open sessions.
+Sessions are kept in the plugin's own store because MeshCentral can expire its events. The store follows MeshCentral's database: with PostgreSQL, MariaDB, MySQL or SQLite the sessions live in a `plugin_connectionstats_sessions` table inside MeshCentral's database; with MongoDB in a `plugin_connectionstats_sessions` collection; otherwise in `meshcentral-data/plugin-connectionstats-sessions.db`. Every backend is exercised by the test suite against a real server. Retention defaults to **0 (disabled)**, keeping all sessions. A positive number enables cleanup of closed sessions older than that many days; open sessions are never removed. Existing installations keep their saved setting: set "Keep sessions for" to 0 and save to disable cleanup.
 
 ## Getting sessions back from before the plugin was installed
 
-MeshCentral itself only keeps relay events for 20 days (`settings.dbExpire.events` in `config.json`, in seconds). The plugin imports those on first start. Anything older is gone from the database, but not from MeshCentral's backups: every backup zip contains the events file or a dump of the database. On the settings page, "Import from a backup" lists the files in the server's backup folder and also takes an upload. The plugin reads the relay events out of the file and adds the sessions it does not have yet, so go through your backups oldest first; importing a backup twice changes nothing.
+MeshCentral defaults to 20-day event retention (`settings.dbExpire.events`, in seconds), but older records may still be present depending on configuration and expiration behavior. To import directly from the **live database**, open settings, leave **days back = 0 (all history)** under "Import past sessions from MeshCentral's event log", and click **Import now**. This uses MeshCentral's `GetAllEvents` database method, filters relay events and pairs them into sessions. It has no 400-day cutoff or early stop after empty weeks. A positive day count scans that entire period in weekly windows. Existing sessions are skipped.
+
+If records have already been deleted from the live database, use "Import from a backup" instead. It lists files in the server's backup folder and accepts uploads. The plugin reads events from the backup and adds missing sessions; re-importing also repairs missing device/group names when the backup contains them.
 
 | MeshCentral database | What the plugin reads from the backup |
 | --- | --- |

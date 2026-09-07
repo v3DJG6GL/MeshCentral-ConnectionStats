@@ -80,6 +80,11 @@ async function storeSuite(db, label) {
 
     // retention keeps recent and open sessions
     await db.upsertSession(doc('open-old', T - 30 * 86400000, null));
+    db.setRetentionDays(0);
+    assert.equal(db.retentionDays, 0, m('zero retention accepted'));
+    assert.equal(await db.retentionSweep(), 0, m('automatic cleanup disabled'));
+    assert.equal(await db.sweepRetention(0), 0, m('manual cleanup disabled'));
+    assert.notEqual(await db.getSession('s_c'), null, m('disabled retention keeps old closed sessions'));
     assert.equal(await db.sweepRetention(5), 1, m('sweep count'));
     assert.equal(await db.getSession('s_c'), null, m('old closed removed'));
     assert.notEqual(await db.getSession('s_open-old'), null, m('open never removed'));

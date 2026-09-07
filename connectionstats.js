@@ -5,7 +5,7 @@
 * Records how long each admin was remote-connected to each device, by connection type, and shows
 * it per device, per device group and server-wide, with export. Sessions are captured from the
 * server event bus (every relay start/end is dispatched there) and kept in the plugin's own store,
-* because MeshCentral's own events expire after 20 days.
+* because MeshCentral's own events can expire according to its retention settings.
 */
 
 "use strict";
@@ -154,7 +154,7 @@ module.exports.connectionstats = function (parent) {
     // ------------------------------------------------------------------
     obj.defaultSettings = function () {
         return {
-            retentionDays: 365,
+            retentionDays: 0,
             minSeconds: 0,
             recordTypes: obj.events.TYPES.slice(),
             activity: { enabled: true, idleMinutes: 5, beatSeconds: 30 },
@@ -166,7 +166,7 @@ module.exports.connectionstats = function (parent) {
         var d = obj.defaultSettings();
         if (input == null || typeof input != 'object') return d;
         var num = function (v, dflt, min, max) { var n = Number(v); if (!isFinite(n)) return dflt; return Math.min(Math.max(n, min), max); };
-        d.retentionDays = Math.round(num(input.retentionDays, d.retentionDays, 1, 3650));
+        d.retentionDays = Math.round(num(input.retentionDays, d.retentionDays, 0, 3650));
         d.minSeconds = Math.round(num(input.minSeconds, d.minSeconds, 0, 3600));
         if (Array.isArray(input.recordTypes)) {
             var rt = input.recordTypes.filter(function (t) { return obj.events.TYPES.indexOf(t) >= 0; });
@@ -291,8 +291,8 @@ module.exports.connectionstats = function (parent) {
         obj.backfillStatus = obj.backfill.run({
             meshServer: obj.meshServer, db: obj.db, events: obj.events, resolveNames: obj.resolveNames,
             log: function (m) { console.log('CONNSTATS: ' + m); }
-        }, { days: days || obj.settings.retentionDays });
-        obj.backfillStatus.promise.then(function () { obj.db.setSetting('backfill', { done: Date.now() }).catch(function () { }); });
+        }, { days: days == null ? 0 : days });
+        obj.backfillStatus.promise.then(function (st) { if (st.error) return; obj.db.setSetting('backfill', { done: Date.now() }).catch(function () { }); });
         return obj.backfillStatus;
     };
     // A fresh install imports what MeshCentral still has (20 days by default) so the dashboard is
@@ -745,7 +745,7 @@ module.exports.connectionstats = function (parent) {
             return;
         }
         if (action == 'backfill') {
-            var days = Math.min(400, Math.max(1, Math.floor(Number(req.body.days)) || obj.settings.retentionDays));
+            var days = Math.min(36500, Math.max(0, Math.floor(Number(req.body.days)) || 0));
             obj.startBackfill(days);
             res.json({ ok: true, backfill: obj.backfillInfo() });
             return;

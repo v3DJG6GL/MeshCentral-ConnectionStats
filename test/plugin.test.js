@@ -39,7 +39,7 @@ test('plugin records a desktop session end to end', { skip: !nedbAvailable && 'n
         const started = plugin.server_startup();
         assert.equal(ms.dispatch.length, 1);
         await started; // settings load
-        assert.equal(plugin.settings.retentionDays, 365);
+        assert.equal(plugin.settings.retentionDays, 0);
 
         const t0 = Date.now() - 5000;
         plugin.HandleEvent(null, relay(15, '2', ['r1', '203.0.113.7', '10.0.0.5'], { time: new Date(t0) }), ['*'], null);
@@ -117,4 +117,14 @@ test('backup list sorts by filename date despite copied mtimes, with fallback an
         assert.equal(result.files[1].backupTime, null);
         assert.equal(result.files[5].backupTime, null);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('retention defaults to disabled, saves zero, and preserves existing positive settings', async () => {
+    const plugin = require('../connectionstats.js').connectionstats(fakeMeshServer('/tmp').pluginHandler);
+    let stored = { retentionDays: 30 }, applied;
+    plugin.db = { getSetting: async () => stored, setSetting: async (_, value) => { stored = value; }, setRetentionDays: value => { applied = value; } };
+    assert.equal(plugin.defaultSettings().retentionDays, 0);
+    await plugin.loadSettings(); assert.equal(applied, 30);
+    await plugin.saveSettings({ retentionDays: 0 }); assert.equal(stored.retentionDays, 0); assert.equal(applied, 0);
+    await plugin.loadSettings(); assert.equal(plugin.settings.retentionDays, 0);
 });

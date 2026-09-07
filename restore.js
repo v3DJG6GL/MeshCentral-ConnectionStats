@@ -2,7 +2,7 @@
 * @description MeshCentral-ConnectionStats: import of relay events from MeshCentral backups
 * @license Apache-2.0
 *
-* MeshCentral removes events after 20 days, but its automatic backups keep them: every backup zip
+* MeshCentral expires events according to its retention settings; backups keep snapshots: every backup zip
 * holds the NeDB events file (meshcentral-data/meshcentral-events.db) or, for the other databases,
 * a dump at the root of the zip (mongodump archive, mysqldump or pg_dump SQL, SQLite copy). This
 * module reads any of those, plus the same files outside a zip and mongoexport JSON, and hands the

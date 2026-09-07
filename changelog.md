@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.12
+
+- Direct database import defaults to all retained history (days back = 0), using
+  MeshCentral's GetAllEvents method without an age cutoff. Day-limited imports
+  continue through empty weeks and report database read failures.
+- Retention defaults to 0 (disabled). Both automatic and manual cleanup preserve
+  all sessions at 0; existing installations keep their saved retention setting.
+
 ## 0.2.11
 
 - Backup imports list files newest first by the timestamp in their filename,

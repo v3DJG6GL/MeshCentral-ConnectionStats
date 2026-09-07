@@ -23,7 +23,7 @@
 var Datastore = null;
 
 // ---- tunables ------------------------------------------------------------
-const DEFAULT_RETENTION_DAYS = 365;
+const DEFAULT_RETENTION_DAYS = 0;
 const RETENTION_SWEEP_MS = 24 * 60 * 60 * 1000;
 const NEDB_DELETE_CHUNK = 250;              // see removeInChunks()
 // MeshCentral uses this same value for every one of its own NeDB stores. Compaction rewrites the
@@ -125,7 +125,7 @@ function installShared(obj) {
     obj.retentionDays = DEFAULT_RETENTION_DAYS;
     obj.setRetentionDays = function (days) {
         var n = Number(days);
-        obj.retentionDays = (isFinite(n) && n > 0) ? n : DEFAULT_RETENTION_DAYS;
+        obj.retentionDays = (isFinite(n) && n >= 0) ? n : DEFAULT_RETENTION_DAYS;
     };
     obj.applyRetention = function () {
         return obj.getSetting('settings').then(function (s) {
@@ -261,6 +261,7 @@ module.exports.CreateDB = function (meshserver) {
             });
         };
         obj.sweepRetention = function (days) {
+            if (!isFinite(Number(days)) || Number(days) <= 0) return Promise.resolve(0);
             var cutoff = Date.now() - (Number(days) || DEFAULT_RETENTION_DAYS) * 86400000;
             return ready().then(function () { return obj.sessionsFile.deleteMany({ end: { $ne: null, $lt: cutoff } }); })
             .then(function (r) {
@@ -375,6 +376,7 @@ module.exports.CreateDB = function (meshserver) {
         });
     };
     obj.sweepRetention = function (days) {
+        if (!isFinite(Number(days)) || Number(days) <= 0) return Promise.resolve(0);
         if (obj._sweeping) return Promise.resolve(0);
         obj._sweeping = true;
         var cutoff = Date.now() - (Number(days) || DEFAULT_RETENTION_DAYS) * 86400000;

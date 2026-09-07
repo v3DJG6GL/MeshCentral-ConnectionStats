@@ -2,8 +2,8 @@
 * @description MeshCentral-ConnectionStats: one-time import of past sessions from MeshCentral's events
 * @license Apache-2.0
 *
-* MeshCentral keeps every relay start and end in its events collection, but only for 20 days by
-* default. On first install (and on request) the plugin walks those events back in 7-day windows
+* MeshCentral retains relay events according to its database expiration settings. On first
+* install (and on request) the plugin reads all retained events or a requested day range
 * and pairs them with the same code the live capture uses, so a fresh install shows history right
 * away. Events that are already in the store are skipped, so running it twice is harmless.
 */
@@ -11,8 +11,7 @@
 "use strict";
 
 const WINDOW_MS = 7 * 86400000;
-const MAX_DAYS = 400;
-const EMPTY_WINDOWS_TO_STOP = 4;
+const MAX_DAYS = 36500;
 
 // Pair raw relay events (any order) and store every closed session the store does not have yet.
 // Updates st.found / st.imported / st.skipped. Backup records also fill missing names
@@ -78,32 +77,31 @@ function runFile(ctx, file, opts) {
 function run(ctx, opts) {
     var st = { running: true, startedAt: Date.now(), finishedAt: null, scanned: 0, found: 0, imported: 0, skipped: 0, windowFrom: null, error: null };
     var msgids = ctx.events.START_MSGIDS.concat(ctx.events.END_MSGIDS);
-    var days = Math.min(MAX_DAYS, Math.max(1, Number(opts && opts.days) || 90));
+    var days = Math.min(MAX_DAYS, Math.max(0, Math.floor(Number(opts && opts.days) || 0)));
     var domains = Object.keys((ctx.meshServer.config && ctx.meshServer.config.domains) || { '': {} });
     var now = Date.now(), floor = now - days * 86400000;
     var all = [];
 
     function readWindow(domain, start, end) {
-        return new Promise(function (resolve) {
+        return new Promise(function (resolve, reject) {
             try {
-                ctx.meshServer.db.GetEventsTimeRange(['*'], domain, msgids, new Date(start), new Date(end), function (err, docs) {
-                    if (err || !Array.isArray(docs)) { resolve([]); return; }
+                ctx.meshServer.db.GetEventsTimeRange(['*'], domain, msgids, new Date(start), new Date(end - 1), function (err, docs) {
+                    if (err || !Array.isArray(docs)) { reject(err || new Error('Invalid event query response')); return; }
                     // SQL backends ignore the msgid filter, so filter here as well
-                    resolve(docs.filter(function (e) { return e && e.etype == 'relay' && e.action == 'relaylog' && msgids.indexOf(Number(e.msgid)) >= 0; }));
+                    resolve(docs.filter(function (e) { return e && e.etype == 'relay' && e.action == 'relaylog' && msgids.indexOf(Number(e.msgid)) >= 0; }).map(function (e) { return Object.assign({}, e, { domain: domain }); }));
                 });
-            } catch (e) { resolve([]); }
+            } catch (e) { reject(e); }
         });
     }
 
     function walkDomain(domain) {
-        var end = now, empty = 0;
+        var end = now;
         var step = function () {
-            if (end <= floor || empty >= EMPTY_WINDOWS_TO_STOP) return Promise.resolve();
+            if (end <= floor) return Promise.resolve();
             var start = Math.max(floor, end - WINDOW_MS);
             st.windowFrom = start;
             return readWindow(domain, start, end).then(function (docs) {
                 st.scanned += docs.length;
-                if (docs.length == 0) empty++; else empty = 0;
                 docs.forEach(function (d) { all.push(d); });
                 end = start;
                 return step();
@@ -114,8 +112,22 @@ function run(ctx, opts) {
 
     function importAll() { return importEvents(ctx, all, st, 'backfill'); }
 
-    st.promise = domains.reduce(function (p, d) { return p.then(function () { return walkDomain(d); }); }, Promise.resolve())
-    .then(importAll)
+    function readAll() {
+        st.phase = 'reading all retained events';
+        return new Promise(function (resolve, reject) {
+            try {
+                ctx.meshServer.db.GetAllEvents(function (err, docs) {
+                    if (err || !Array.isArray(docs)) { reject(err || new Error('Invalid event query response')); return; }
+                    st.scanned = docs.length;
+                    all = docs.filter(function (e) { return e && e.etype == 'relay' && e.action == 'relaylog' && msgids.indexOf(Number(e.msgid)) >= 0; });
+                    resolve();
+                });
+            } catch (e) { reject(e); }
+        });
+    }
+
+    st.promise = days == 0 ? readAll() : domains.reduce(function (p, d) { return p.then(function () { return walkDomain(d); }); }, Promise.resolve());
+    st.promise = st.promise.then(function () { st.phase = 'importing'; return importAll(); })
     .then(function () { st.running = false; st.finishedAt = Date.now(); ctx.log('backfill: scanned ' + st.scanned + ' events, ' + st.found + ' sessions, imported ' + st.imported + ', skipped ' + st.skipped); return st; })
     .catch(function (e) { st.running = false; st.finishedAt = Date.now(); st.error = (e && e.message) || String(e); ctx.log('backfill error: ' + st.error); return st; });
     return st;

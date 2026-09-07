@@ -378,6 +378,7 @@ function install(obj, meshserver, kind, shared) {
     // Chunked so a first sweep over a large table does not hold row locks for minutes. Open
     // sessions (end_ms IS NULL) are never touched.
     obj.sweepRetention = function (days) {
+        if (!isFinite(Number(days)) || Number(days) <= 0) return Promise.resolve(0);
         if (obj._sweeping) return Promise.resolve(0);
         obj._sweeping = true;
         var cutoff = Date.now() - (Number(days) || shared.DEFAULT_RETENTION_DAYS) * 86400000;

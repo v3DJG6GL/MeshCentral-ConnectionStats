@@ -8,7 +8,7 @@ function relay(msgid, protocol, args, extra) {
     return Object.assign({ etype: 'relay', action: 'relaylog', domain: '', userid: 'user//admin', username: 'admin', msgid: msgid, msgArgs: args, protocol: protocol, nodeid: 'node//abc' }, extra || {});
 }
 
-test('backfill pairs stored events, skips known sessions and stops on empty windows', async () => {
+test('backfill pairs stored events, skips known sessions and scans through empty windows', async () => {
     const now = Date.now();
     const stored = [
         relay(15, '2', ['old1', 'a', 'b'], { time: new Date(now - 10 * 86400000) }),
@@ -39,6 +39,43 @@ test('backfill pairs stored events, skips known sessions and stops on empty wind
     assert.equal(store['s_old1'].source, 'backfill');
     assert.equal(store['s_old1'].seconds, 600);
     assert.equal(store['s_old1'].nodename, 'PC');
-    // windows: 7-day steps, stopping after 4 empty windows past the last event (~10 days back)
-    assert.ok(calls.length >= 2 && calls.length <= 7, 'windows read: ' + calls.length);
+    // Every requested window is read, even when several weeks have no events.
+    assert.equal(calls.length, 9);
+});
+
+test('all-history import reads the live database beyond 400 days, preserves domains and skips duplicates', async () => {
+    const start = Date.UTC(2024, 0, 1);
+    const old = [relay(15, 2, ['ancient', 'a', 'b'], { time: new Date(start), domain: 'office' }),
+        relay(11, 2, ['ancient', 'a', 'b', 60], { time: new Date(start + 60000), domain: 'office' })];
+    const store = new Map(); let reads = 0;
+    const ctx = { events, log() {}, resolveNames: (_, cb) => cb({ nodename: 'PC' }),
+        meshServer: { db: { GetAllEvents: cb => { reads++; cb(null, [...old, { action: 'login' }]); } } },
+        db: { getSession: async id => store.get(id), upsertSession: async d => store.set(d._id, d) } };
+    const first = backfill.run(ctx, { days: 0 }); await first.promise;
+    assert.equal(first.error, null); assert.equal(first.scanned, 3); assert.equal(first.imported, 1);
+    const session = [...store.values()][0];
+    assert.equal(session.domain, 'office'); assert.equal(session.start, start);
+    const second = backfill.run(ctx, {}); await second.promise;
+    assert.equal(second.imported, 0); assert.equal(second.skipped, 1); assert.equal(reads, 2);
+});
+
+test('bounded import reaches old events after long gaps and restores the projected domain', async () => {
+    const start = Date.now() - 600 * 86400000;
+    const old = [relay(15, 2, ['old', 'a', 'b'], { time: new Date(start) }), relay(11, 2, ['old', 'a', 'b', 60], { time: new Date(start + 60000) })];
+    let session;
+    const ctx = { events, log() {}, resolveNames: (_, cb) => cb({}),
+        meshServer: { config: { domains: { office: {} } }, db: {
+            GetEventsTimeRange: (_, domain, ids, from, to, cb) => cb(null, old.filter(e => e.time >= from && e.time <= to).map(e => { const copy = { ...e }; delete copy.domain; return copy; }))
+        } }, db: { getSession: async () => null, upsertSession: async d => { session = d; } } };
+    const st = backfill.run(ctx, { days: 700 }); await st.promise;
+    assert.equal(st.error, null); assert.equal(st.imported, 1); assert.equal(session.domain, 'office');
+});
+
+test('database read failures are reported instead of treated as empty history', async () => {
+    for (const days of [0, 30]) {
+        const fail = (...args) => args[args.length - 1](new Error('database unavailable'));
+        const ctx = { events, log() {}, meshServer: { db: { GetAllEvents: fail, GetEventsTimeRange: fail } } };
+        const st = backfill.run(ctx, { days }); await st.promise;
+        assert.match(st.error, /database unavailable/); assert.equal(st.running, false);
+    }
 });
