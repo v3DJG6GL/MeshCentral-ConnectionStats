@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.15
+
+- Every-day calendar cells and session timeline bars use the shared hover and
+  keyboard-focus tooltip design. Calendar tooltips include daily totals and
+  color-marked connection types; timeline tooltips include session dates.
+- Share-by-type and where-time-went charts use the same custom tooltips.
+- Empty chart buckets, weekday/hour cells and timeline areas show their date or
+  time and totals. The weekday/hour chart now includes visible cell gridlines.
+- Monthly charts, calendars and session timelines show a separate year row.
+  January labels no longer need to fit a year on the same line and take priority
+  when the monthly axis must omit labels on narrower screens.
+
 ## 0.2.14
 
 - Database imports report UTC date coverage and monthly counts for returned

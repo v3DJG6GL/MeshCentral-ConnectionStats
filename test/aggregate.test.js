@@ -89,3 +89,13 @@ test('punchcard, devices, groups and median', () => {
 test('an unknown time zone falls back to UTC instead of throwing', () => {
     assert.equal(ag.bucketEdges(0, 86400000, 'day', 'Mars/Olympus').length, 1);
 });
+
+test('calendar daily type totals split sessions correctly at midnight', () => {
+    const start = L(2026, 1, 1), end = L(2026, 1, 3);
+    const a = ag.aggregate([
+        { type: 'desktop', start: L(2026, 1, 1, 23), end: L(2026, 1, 2, 1), nodeid: 'node//one' },
+        { type: 'files', start: L(2026, 1, 2, 0), end: L(2026, 1, 2, 0, 30), nodeid: 'node//one' }
+    ], { start, end, bucket: 'month', tz: TZ });
+    assert.equal(a.daily[0].tot, 3600); assert.deepEqual(a.daily[0].by, { desktop: 3600 });
+    assert.equal(a.daily[1].tot, 5400); assert.deepEqual(a.daily[1].by, { desktop: 3600, files: 1800 });
+});

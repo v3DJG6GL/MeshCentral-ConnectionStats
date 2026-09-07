@@ -216,14 +216,20 @@
         if (axisMeasure === undefined) {
             try { axisMeasure = document.createElement('canvas').getContext('2d'); axisMeasure.font = '10px Arial'; } catch (e) { axisMeasure = null; }
         }
-        var right = -Infinity;
-        return candidates.filter(function (tick) {
+        var selected = [];
+        candidates.slice().sort(function (a, b) { return (b.priority || 0) - (a.priority || 0) || a.x - b.x; }).forEach(function (tick) {
             var w = axisMeasure ? axisMeasure.measureText(tick.text).width : tick.text.length * 6;
-            // Keep the labels within the plot and leave a small gap between neighbours.
             tick.x = Math.max(w / 2, Math.min(tick.x, width - w / 2));
-            if (tick.x - w / 2 < right + 6) return false;
-            right = tick.x + w / 2; return true;
+            if (selected.some(function (other) { return Math.abs(tick.x - other.x) < (w + other.width) / 2 + 6; })) return;
+            tick.width = w; selected.push(tick);
         });
+        return selected.sort(function (a, b) { return a.x - b.x; });
+    }
+
+    function yearLabels(years, width, left, y) {
+        return axisTicks(Object.keys(years).sort().map(function (year) {
+            return { x: (years[year].start + years[year].end) / 2, text: year };
+        }), width).map(function (tick) { return '<text class="ax cs-year-tick" x="' + (left + tick.x) + '" y="' + y + '" text-anchor="middle">' + esc(tick.text) + '</text>'; }).join('');
     }
     function timeAxisLabel(t, start, end) {
         var time = label({ s: t }, 'hour');
@@ -233,6 +239,8 @@
     function stackedBars(a, prev, sel) {
         var W = mainW(), H = 200, L = 38, R = 8, T = 12, B = 26, bk = a.buckets, n = bk.length, bucket = a.bucket;
         if (!n) return '';
+        if (bucket == 'month') { H += 14; B += 14; }
+        var years = {};
         var maxv = 0; bk.forEach(function (b) { maxv = Math.max(maxv, b.tot); }); if (prev) prev.buckets.forEach(function (b) { maxv = Math.max(maxv, b.tot); });
         var unit = maxv > 3600 ? 3600 : maxv > 60 ? 60 : 1, maxU = niceMax(maxv / unit), ticks = [0, .25, .5, .75, 1].map(function (x) { return x * maxU; });
         var tick = function (t) { var v = Number.isInteger(t) ? t : Number(t.toFixed(1)); return v + (unit == 3600 ? 'h' : unit == 60 ? 'm' : 's'); };
@@ -243,16 +251,20 @@
         var datedHours = bucket == 'hour' && a.end - a.start > 3 * DAY;
         bk.forEach(function (b, i) {
             var x = L + iw * i + (iw - bw) / 2, y = H - B, d = new Date(b.s);
+            var year = d.getFullYear();
+            if (!years[year]) years[year] = { start: iw * i, end: iw * (i + 1) }; else years[year].end = iw * (i + 1);
             var weekend = bucket == 'day' && (d.getDay() == 0 || d.getDay() == 6);
             if (weekend) s += '<rect x="' + (L + iw * i) + '" y="' + T + '" width="' + iw + '" height="' + (H - T - B) + '" fill="var(--hi)" opacity=".6"/>';
+            s += '<rect class="cs-bucket" data-i="' + i + '" tabindex="0" role="img" aria-label="' + esc(longLabel(b, bucket) + ', ' + fmtDur(b.tot)) + '" x="' + (L + iw * i) + '" y="' + T + '" width="' + iw + '" height="' + (H - T - B) + '" fill="transparent" pointer-events="all"/>';
             TYPES.forEach(function (t) {
                 var v = b.by[t.k] || 0; if (!v) return; var h = (H - T - B) * (v / unit) / maxU; y -= h;
                 var dim = sel && !(sel.i == i && sel.t == t.k);
                 s += '<rect class="bar' + (dim ? ' dim' : '') + '" data-i="' + i + '" data-t="' + t.k + '" tabindex="0" role="button" aria-label="' + esc(longLabel(b, bucket)) + ', ' + t.n + ', ' + fmtDur(v) + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(h, 0.5).toFixed(1) + '" fill="' + t.c + '"></rect>';
             });
-            if (!datedHours || (d.getHours() == 0 && d.getMinutes() == 0)) axis.push({ x: iw * i + iw / 2, text: bucket == 'hour' ? timeAxisLabel(b.s, a.start, a.end) : label(b, bucket) });
+            if (!datedHours || (d.getHours() == 0 && d.getMinutes() == 0)) axis.push({ x: iw * i + iw / 2, priority: bucket == 'month' && d.getMonth() == 0 ? 1 : 0, text: bucket == 'hour' ? timeAxisLabel(b.s, a.start, a.end) : bucket == 'month' ? F_M.format(d) : label(b, bucket) });
         });
-        axisTicks(axis, W - L - R).forEach(function (tick) { s += '<text class="ax cs-time-tick" x="' + (L + tick.x) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(tick.text) + '</text>'; });
+        axisTicks(axis, W - L - R).forEach(function (tick) { s += '<text class="ax cs-time-tick" x="' + (L + tick.x) + '" y="' + (H - (bucket == 'month' ? 22 : 8)) + '" text-anchor="middle">' + esc(tick.text) + '</text>'; });
+        if (bucket == 'month') s += yearLabels(years, W - L - R, L, H - 8);
         if (prev && prev.buckets.length) {
             var pts = prev.buckets.map(function (b, i) { if (i >= n) return null; var y = T + (H - T - B) * (1 - (b.tot / unit) / maxU); return (L + iw * i + iw / 2).toFixed(1) + ',' + y.toFixed(1); }).filter(Boolean);
             s += '<polyline class="prev" points="' + pts.join(' ') + '"><title>Previous period total</title></polyline>';
@@ -262,23 +274,24 @@
     function donut(a) {
         var tot = a.totals.seconds || 1, r = 40, c = 2 * Math.PI * r, off = 0, items = [];
         var s = '<svg viewBox="0 0 96 96" role="img" aria-label="Share by type"><circle cx="48" cy="48" r="' + r + '" fill="none" stroke="var(--r2)" stroke-width="12"/>';
-        TYPES.forEach(function (t) { var v = a.byType[t.k] || 0; if (!v) return; var f = v / tot; s += '<circle cx="48" cy="48" r="' + r + '" fill="none" stroke="' + t.c + '" stroke-width="12" stroke-dasharray="' + (f * c).toFixed(2) + ' ' + c.toFixed(2) + '" stroke-dashoffset="' + (-off * c).toFixed(2) + '" transform="rotate(-90 48 48)"><title>' + t.n + ' ' + Math.round(f * 100) + '%</title></circle>'; off += f; items.push({ t: t, v: v, f: f }); });
+        TYPES.forEach(function (t) { var v = a.byType[t.k] || 0; if (!v) return; var f = v / tot; s += '<circle class="cs-share" data-share="' + t.k + '" tabindex="0" role="img" aria-label="' + t.n + ', ' + Math.round(f * 100) + '%" cx="48" cy="48" r="' + r + '" fill="none" stroke="' + t.c + '" stroke-width="12" stroke-dasharray="' + (f * c).toFixed(2) + ' ' + c.toFixed(2) + '" stroke-dashoffset="' + (-off * c).toFixed(2) + '" transform="rotate(-90 48 48)"></circle>'; off += f; items.push({ t: t, v: v, f: f }); });
         s += '</svg>'; items.sort(function (x, y) { return y.v - x.v; });
         var otherParts = Object.keys(a.byProtocol || {}).filter(function (k) { return k.indexOf('other:') == 0 && a.byProtocol[k]; })
             .sort(function (x, y) { return a.byProtocol[y] - a.byProtocol[x]; })
             .map(function (k) { return '<span>' + esc(protoName(k.substring(6))) + ' ' + fmtDur(a.byProtocol[k]) + '</span>'; });
         return '<div class="cs-donut">' + s + '<ul>' + items.map(function (it) {
             var sub = (it.t.k == 'other' && otherParts.length) ? '<div class="sub">' + otherParts.join(', ') + '</div>' : '';
-            return '<li><i style="background:' + it.t.c + '"></i>' + it.t.n + '<b>' + fmtDur(it.v) + ' <small>' + Math.round(it.f * 100) + '%</small></b>' + sub + '</li>';
+            return '<li class="cs-share" data-share="' + it.t.k + '" tabindex="0"><i style="background:' + it.t.c + '"></i>' + it.t.n + '<b>' + fmtDur(it.v) + ' <small>' + Math.round(it.f * 100) + '%</small></b>' + sub + '</li>';
         }).join('') + '</ul></div>';
     }
     function hbars(list, kind) {
         var max = list.length ? list[0].seconds : 1, s = '<div class="cs-hbars">';
-        list.slice(0, 8).forEach(function (it) {
-            var bar = ''; TYPES.forEach(function (t) { if (it.by[t.k]) bar += '<i style="width:' + (it.by[t.k] / max * 100) + '%;background:' + t.c + '" title="' + t.n + ' ' + fmtDur(it.by[t.k]) + '"></i>'; });
+        list.slice(0, 8).forEach(function (it, index) {
+            var bar = ''; TYPES.forEach(function (t) { if (it.by[t.k]) bar += '<i style="width:' + (it.by[t.k] / max * 100) + '%;background:' + t.c + '"></i>'; });
             var link = (kind == 'group' && it.id != '?') ? 'mesh:' + it.id : (kind == 'device' && it.id != '?') ? 'node:' + it.id : null;
-            var name = (link && !COMPACT) ? '<a href="#" data-scope-to="' + esc(link) + '" title="Show only ' + esc(it.name) + '">' + esc(it.name) + '</a>' : esc(it.name);
-            s += '<div class="n">' + name + '</div><div class="b">' + bar + '</div><div class="v">' + fmtDur(it.seconds) + '</div>';
+            var name = (link && !COMPACT) ? '<a href="#" data-scope-to="' + esc(link) + '">' + esc(it.name) + '</a>' : esc(it.name);
+            var attrs = ' data-where="' + index + '" data-kind="' + kind + '"';
+            s += '<div class="n cs-where"' + attrs + '>' + name + '</div><div class="b cs-where" tabindex="0" role="img" aria-label="' + esc(it.name + ', ' + fmtDur(it.seconds)) + '"' + attrs + '>' + bar + '</div><div class="v cs-where"' + attrs + '>' + fmtDur(it.seconds) + '</div>';
         });
         return s + '</div>';
     }
@@ -301,15 +314,18 @@
         var max = 0; pc.forEach(function (r) { r.forEach(function (c) { max = Math.max(max, c.tot); }); }); max = max || 1;
         var W = fullW(), H = 150, L = 30, T = 16, cw = (W - L) / 24, rh = (H - T) / 7;
         var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Connected time by weekday and hour of start">';
+        // Cell boundaries make the weekday/hour coordinates visible even without activity.
+        for (var col = 0; col <= 24; col++) s += '<line class="gl cs-pc-grid" x1="' + (L + cw * col) + '" x2="' + (L + cw * col) + '" y1="' + T + '" y2="' + H + '"/>';
+        for (var row = 0; row <= 7; row++) s += '<line class="gl cs-pc-grid" x1="' + L + '" x2="' + W + '" y1="' + (T + rh * row) + '" y2="' + (T + rh * row) + '"/>';
         for (var h = 0; h < 24; h += 3) s += '<text class="ax" x="' + (L + cw * h + cw / 2) + '" y="10" text-anchor="middle">' + p2(h) + '</text>';
         [1, 2, 3, 4, 5, 6, 0].forEach(function (dw, ri) {
             s += '<text class="ax" x="' + (L - 6) + '" y="' + (T + rh * ri + rh / 2 + 3.5) + '" text-anchor="end">' + DOW[dw] + '</text>';
             for (var hh = 0; hh < 24; hh++) {
-                var c = pc[dw][hh]; if (!c.tot) continue;
+                var c = pc[dw][hh];
                 var r = 2 + Math.sqrt(c.tot / max) * (rh / 2 - 1.5), cx = +(L + cw * hh + cw / 2).toFixed(1), cy = +(T + rh * ri + rh / 2).toFixed(1);
                 var dim = sel && !(sel.wd == dw && sel.h == hh);
                 var tip = cellLabel(dw, hh) + ', ' + fmtDur(c.tot) + ': ' + TYPES.filter(function (t) { return c.by[t.k]; }).map(function (t) { return t.n + ' ' + fmtDur(c.by[t.k]); }).join(', ');
-                s += '<g class="pc' + (dim ? ' dim' : '') + '" data-pc="1" data-wd="' + dw + '" data-h="' + hh + '" tabindex="0" role="button" aria-label="' + esc(tip) + '">' + pie(cx, cy, +r.toFixed(1), c.by, c.tot) + '</g>';
+                s += '<g class="pc' + (dim ? ' dim' : '') + '" data-pc="1" data-wd="' + dw + '" data-h="' + hh + '" tabindex="0" role="button" aria-label="' + esc(tip) + '"><rect class="cs-pc-hit" x="' + (L + cw * hh) + '" y="' + (T + rh * ri) + '" width="' + cw + '" height="' + rh + '" fill="transparent" pointer-events="all"/>' + pie(cx, cy, +r.toFixed(1), c.by, c.tot) + '</g>';
             }
         });
         return s + '</svg>';
@@ -318,18 +334,21 @@
         var max = 0; daily.forEach(function (d) { max = Math.max(max, d.tot); }); max = max || 1;
         var fd = new Date(daily.length ? daily[0].s : start), startCol = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate() - ((fd.getDay() + 6) % 7)).getTime();
         var byDay = {}; daily.forEach(function (d) { byDay[isoDay(d.s)] = d; });
-        var weeks = Math.ceil((end - startCol) / (7 * DAY)) + 1, cs = 12, gap = 2, W = 30 + weeks * (cs + gap), H = 20 + 7 * (cs + gap);
+        var weeks = Math.ceil((end - startCol) / (7 * DAY)) + 1, cs = 12, gap = 2, W = 30 + weeks * (cs + gap), H = 34 + 7 * (cs + gap), years = {};
         var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + Math.min(W, 1400) + 'px;max-width:' + W + 'px" role="img" aria-label="Connected time per day">', lastM = -1, lastLW = -9;
         for (var w = 0; w < weeks; w++) for (var d = 0; d < 7; d++) {
             var dt = new Date(startCol); dt.setDate(dt.getDate() + w * 7 + d); var t = dt.getTime();
             if (t < start || t >= end) continue;
             var rec = byDay[isoDay(t)], v = rec ? rec.tot : 0;
             // one label per month, skipped when the previous one is less than three columns away (a range that starts late in a month)
-            if (dt.getMonth() != lastM && d == 0) { lastM = dt.getMonth(); if (w - lastLW >= 3) { lastLW = w; s += '<text class="ax" x="' + (30 + w * (cs + gap)) + '" y="10">' + MON[lastM] + '</text>'; } }
+            if (dt.getMonth() != lastM) { lastM = dt.getMonth(); if (w - lastLW >= 3) { lastLW = w; s += '<text class="ax" x="' + (30 + w * (cs + gap)) + '" y="24">' + MON[lastM] + '</text>'; } }
+            var year = dt.getFullYear(), x = w * (cs + gap);
+            if (!years[year]) years[year] = { start: x, end: x + cs }; else years[year].end = x + cs;
             var op = v ? .2 + .8 * Math.sqrt(v / max) : 0;
-            s += '<rect x="' + (30 + w * (cs + gap)) + '" y="' + (18 + d * (cs + gap)) + '" width="' + cs + '" height="' + cs + '" rx="2" fill="' + (v ? 'var(--nav)' : 'var(--r2)') + '" opacity="' + (v ? op.toFixed(2) : 1) + '"><title>' + fmtDate(t) + ', ' + (v ? fmtDur(v) : 'no sessions') + '</title></rect>';
+            s += '<rect class="cs-day" data-day="' + t + '" tabindex="0" role="img" aria-label="' + esc(fmtDate(t) + ', ' + fmtDur(v)) + '" x="' + (30 + w * (cs + gap)) + '" y="' + (32 + d * (cs + gap)) + '" width="' + cs + '" height="' + cs + '" rx="2" fill="' + (v ? 'var(--nav)' : 'var(--r2)') + '" opacity="' + (v ? op.toFixed(2) : 1) + '"></rect>';
         }
-        ['Mon', 'Wed', 'Fri', 'Sun'].forEach(function (n, i) { s += '<text class="ax" x="0" y="' + (18 + [0, 2, 4, 6][i] * (cs + gap) + 9) + '">' + n + '</text>'; });
+        s += yearLabels(years, W - 30, 30, 10);
+        ['Mon', 'Wed', 'Fri', 'Sun'].forEach(function (n, i) { s += '<text class="ax" x="0" y="' + (32 + [0, 2, 4, 6][i] * (cs + gap) + 9) + '">' + n + '</text>'; });
         return s + '</svg>';
     }
     function timeline(rows, start, end) {
@@ -344,12 +363,18 @@
             candidates.push({ x: (+d - start) / (end - start) * width, text: timeAxisLabel(+d, start, end) });
             if (byDate) d.setDate(d.getDate() + 1); else d.setTime(+d + 3600000);
         }
-        var s = '<div class="cs-tl"><div class="hrs"><div></div><div>' + axisTicks(candidates, width).map(function (tick) {
+        var yearTicks = [];
+        for (var year = new Date(start).getFullYear(); year <= new Date(end - 1).getFullYear(); year++) {
+            var from = Math.max(start, new Date(year, 0, 1).getTime()), to = Math.min(end, new Date(year + 1, 0, 1).getTime());
+            yearTicks.push({ x: ((from + to) / 2 - start) / (end - start) * width, text: String(year) });
+        }
+        var yearHtml = axisTicks(yearTicks, width).map(function (tick) { return '<span class="cs-tl-year" style="left:' + (tick.x / width * 100) + '%">' + esc(tick.text) + '</span>'; }).join('');
+        var s = '<div class="cs-tl"><div class="hrs"><div></div><div>' + yearHtml + axisTicks(candidates, width).map(function (tick) {
             return '<span style="left:' + (tick.x / width * 100) + '%">' + esc(tick.text) + '</span>';
         }).join('') + '</div></div>';
         keys.forEach(function (k) {
-            s += '<div class="row"><div class="n" title="' + esc(k) + '">' + esc(k) + '</div><div class="tr">';
-            rows.forEach(function (x) { if (x.node != k) return; var e = x.end == null ? Date.now() : x.end, a = Math.max(x.start, start), z = Math.min(e, end); if (z <= a) return; var l = (a - start) / (end - start) * 100, w = (z - a) / (end - start) * 100; s += '<i class="' + (x.end == null ? 'live' : '') + '" style="left:' + l.toFixed(2) + '%;width:' + w.toFixed(2) + '%;background:' + TYPE[x.type].c + '" title="' + TYPE[x.type].n + ', ' + fmtDT(x.start) + ', ' + fmtDur((z - a) / 1000) + '"></i>'; });
+            s += '<div class="row"><div class="n" title="' + esc(k) + '">' + esc(k) + '</div><div class="tr cs-track" data-track="' + esc(k) + '" tabindex="0" role="img" aria-label="' + esc(k + ', ' + fmtDate(start) + ' to ' + fmtDate(end - 1)) + '">';
+            rows.forEach(function (x, index) { if (x.node != k) return; var e = x.end == null ? Date.now() : x.end, a = Math.max(x.start, start), z = Math.min(e, end); if (z <= a) return; var l = (a - start) / (end - start) * 100, w = (z - a) / (end - start) * 100; s += '<i data-session="' + index + '" tabindex="0" role="img" class="cs-session ' + (x.end == null ? 'live' : '') + '" style="left:' + l.toFixed(2) + '%;width:' + w.toFixed(2) + '%;background:' + TYPE[x.type].c + '" aria-label="' + TYPE[x.type].n + ', ' + fmtDT(x.start) + ', ' + fmtDur((z - a) / 1000) + '"></i>'; });
             s += '</div></div>';
         });
         return s + '</div>';
@@ -561,13 +586,14 @@
 
     // ---------- events ----------
     var chartTip = null, tipBar = null;
+    var CHART_TARGET = '.bar, .pc, .cs-day, .cs-session, .cs-bucket, .cs-track, .cs-share, .cs-where';
     function hideChartTip() {
         if (chartTip) chartTip.hidden = true;
         if (tipBar) tipBar.removeAttribute('aria-describedby');
         tipBar = null;
     }
     function showChartTip(ev) {
-        var bar = ev.target.closest && ev.target.closest('.bar, .pc');
+        var bar = ev.target.closest && ev.target.closest(CHART_TARGET);
         if (!bar) { hideChartTip(); return; }
         if (!chartTip) {
             chartTip = document.createElement('div'); chartTip.id = 'cs-chart-tip';
@@ -577,7 +603,40 @@
         if (tipBar && tipBar !== bar) tipBar.removeAttribute('aria-describedby');
         tipBar = bar;
         var a = DATA && DATA.aggregate, cell = null, heading = bar.getAttribute('aria-label');
-        if (a && bar.dataset.pc != null) {
+        if (a && bar.dataset.share != null) {
+            heading = 'Share by type'; cell = { tot: a.totals.seconds, by: a.byType };
+        } else if (a && bar.dataset.where != null) {
+            var items = bar.dataset.kind == 'group' ? a.byGroup : a.byDevice;
+            var item = items[Number(bar.dataset.where)];
+            if (item) { heading = item.name; cell = { tot: item.seconds, by: item.by }; }
+        } else if (a && bar.dataset.track != null) {
+            var from = a.start, to = a.end;
+            if (ev.clientX != null) {
+                var trackRect = bar.getBoundingClientRect();
+                var position = Math.max(0, Math.min(0.999999, (ev.clientX - trackRect.left) / trackRect.width));
+                var hourStart = new Date(a.start + position * (a.end - a.start)); hourStart.setMinutes(0, 0, 0);
+                from = Math.max(a.start, +hourStart); to = Math.min(a.end, +hourStart + 3600000);
+            }
+            cell = { tot: 0, by: {} };
+            (DAYLIST || []).forEach(function (s) {
+                if (s.node != bar.dataset.track) return;
+                var value = Math.max(0, (Math.min(s.end == null ? Date.now() : s.end, to) - Math.max(s.start, from)) / 1000);
+                cell.tot += value; cell.by[s.type] = (cell.by[s.type] || 0) + value;
+            });
+            heading = bar.dataset.track + ': ' + fmtDT(from) + ' to ' + fmtDT(to);
+        } else if (a && bar.dataset.session != null) {
+            var session = DAYLIST && DAYLIST[Number(bar.dataset.session)];
+            if (session) {
+                var finish = session.end == null ? Date.now() : session.end;
+                var seconds = Math.max(0, (Math.min(finish, a.end) - Math.max(session.start, a.start)) / 1000);
+                cell = { tot: seconds, by: {} }; cell.by[session.type] = seconds;
+                heading = session.node + ': ' + fmtDT(session.start) + ' to ' + (session.end == null ? 'now' : fmtDT(session.end));
+            }
+        } else if (a && bar.dataset.day != null) {
+            var day = Number(bar.dataset.day);
+            cell = (a.daily || []).find(function (d) { return isoDay(d.s) == isoDay(day); }) || { tot: 0, by: {} };
+            heading = fmtDate(day);
+        } else if (a && bar.dataset.pc != null) {
             var wd = Number(bar.dataset.wd), hour = Number(bar.dataset.h);
             cell = a.punchcard && a.punchcard[wd] && a.punchcard[wd][hour];
             heading = cellLabel(wd, hour);
@@ -589,10 +648,11 @@
         if (cell) {
             html += '<div class="cs-tip-total"><span>Total</span><b>' + fmtDur(cell.tot) + '</b></div>';
             html += TYPES.filter(function (t) { return cell.by[t.k] > 0; }).map(function (t) {
-                return '<div class="cs-tip-row"><i aria-hidden="true" style="background:' + t.c + '"></i><span>' + esc(t.n) + '</span><b>' + fmtDur(cell.by[t.k]) + '</b></div>';
+                return '<div class="cs-tip-row"><i aria-hidden="true" style="background:' + t.c + '"></i><span>' + esc(t.n) + '</span><b>' + fmtDur(cell.by[t.k]) + (bar.dataset.share != null && cell.tot ? ' (' + Math.round(cell.by[t.k] / cell.tot * 100) + '%)' : '') + '</b></div>';
             }).join('');
         }
-        html += '<div class="cs-tip-hint">Click to filter sessions</div>';
+        if (cell && !cell.tot) html += '<div class="cs-tip-hint">No sessions</div>';
+        if (bar.dataset.day == null && bar.dataset.session == null && bar.dataset.track == null && bar.dataset.share == null && bar.dataset.where == null && !(bar.classList && bar.classList.contains('cs-bucket'))) html += '<div class="cs-tip-hint">Click to filter sessions</div>';
         // Pointer movement only repositions the tooltip; keep its contents stable.
         if (chartTip.innerHTML != html) chartTip.innerHTML = html;
         chartTip.hidden = false; bar.setAttribute('aria-describedby', chartTip.id);
@@ -606,7 +666,7 @@
     root.addEventListener('pointermove', showChartTip);
     root.addEventListener('pointerout', function (ev) {
         var next = ev && ev.relatedTarget;
-        if (next && next.closest && next.closest('.bar, .pc') === tipBar) return;
+        if (next && next.closest && next.closest(CHART_TARGET) === tipBar) return;
         hideChartTip();
     });
     root.addEventListener('focusin', showChartTip);

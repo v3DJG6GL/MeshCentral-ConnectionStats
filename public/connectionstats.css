@@ -92,8 +92,8 @@ button { font: inherit; }
 .cs-tl .row .tr i { position: absolute; top: 0; height: 100%; border-radius: 2px; min-width: 2px; }
 .cs-tl .row .tr i.live { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
 .cs-tl .hrs { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: 10px; color: var(--m); }
-.cs-tl .hrs div:last-child { position: relative; height: 16px; }
-.cs-tl .hrs span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.cs-tl .hrs div:last-child { position: relative; height: 32px; }
+.cs-tl .hrs span { position: absolute; top: 14px; transform: translateX(-50%); white-space: nowrap; }
 .cs-tscroll { overflow-x: auto; }
 /* on the admin page the dashboard fills the frame; when space runs out the session table scrolls inside its card */
 .cs-full { height: calc(100vh - 16px); box-sizing: border-box; overflow: auto; }
@@ -142,3 +142,19 @@ a.cs-btn { text-decoration: none; display: inline-block; }
   .cs-bar, .cs-foot .pg, .cs-menu { display: none !important; }
   .cs .bar, .cs .pc { cursor: default; }
 }
+
+.cs .cs-day:hover, .cs .cs-day:focus-visible { opacity: 1; stroke: var(--t); stroke-width: 2; vector-effect: non-scaling-stroke; outline: none; }
+.cs .cs-year-tick { font-weight: bold; }
+
+.cs-tl .hrs .cs-tl-year { top: 0; font-weight: bold; }
+.cs-tl .cs-session:hover, .cs-tl .cs-session:focus-visible { filter: brightness(1.2); outline: 2px solid var(--t); outline-offset: 1px; }
+
+.cs .cs-bucket:hover, .cs .cs-bucket:focus-visible, .cs .pc:hover .cs-pc-hit, .cs .pc:focus-visible .cs-pc-hit { fill: var(--hi); stroke: var(--axis); stroke-width: 1; outline: none; }
+
+.cs-tl .cs-track:hover, .cs-tl .cs-track:focus-visible { outline: 1px solid var(--axis); }
+
+.cs-share:hover, .cs-share:focus-visible { filter: brightness(1.2); outline: 1px solid var(--axis); }
+.cs-donut circle.cs-share:hover, .cs-donut circle.cs-share:focus-visible { stroke-width: 14; outline: none; }
+.cs-where:hover, .cs-where:focus-visible { outline: 1px solid var(--axis); outline-offset: 1px; }
+
+.cs .cs-pc-grid { pointer-events: none; vector-effect: non-scaling-stroke; }

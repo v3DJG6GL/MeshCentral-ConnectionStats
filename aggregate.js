@@ -130,7 +130,7 @@ function aggregate(sessions, opts) {
     var bucket = (BUCKETS.indexOf(opts.bucket) >= 0) ? opts.bucket : autoBucket(start, end);
     var buckets = bucketEdges(start, end, bucket, tz).map(function (b) { return { s: b.s, e: b.e, by: {}, tot: 0 }; });
     // per-day totals feed the calendar view when the main buckets are coarser than a day
-    var daily = (bucket == 'week' || bucket == 'month') ? bucketEdges(start, end, 'day', tz).map(function (b) { return { s: b.s, e: b.e, tot: 0 }; }) : null;
+    var daily = (bucket == 'week' || bucket == 'month') ? bucketEdges(start, end, 'day', tz).map(function (b) { return { s: b.s, e: b.e, tot: 0, by: {} }; }) : null;
     var byType = {}, byProtocol = {}, byDevice = {}, byGroup = {}, pc = [], durs = [], devices = {}, users = {};
     var total = 0, active = 0, seen = 0, count = 0, longest = 0, ongoing = 0;
     // punchcard: weekday x hour of (clipped) start, each cell split by type so the page can colour it
@@ -173,14 +173,15 @@ function aggregate(sessions, opts) {
                 var db = daily[q];
                 if (db.e <= cs) continue;
                 if (db.s >= ce) break;
-                db.tot += (Math.min(ce, db.e) - Math.max(cs, db.s)) / 1000;
+                var daySeconds = (Math.min(ce, db.e) - Math.max(cs, db.s)) / 1000;
+                db.tot += daySeconds; db.by[s.type] = (db.by[s.type] || 0) + daySeconds;
             }
         }
         var p = partsIn(cs, tz), cell = pc[p.wd][p.h];
         cell.tot += sec; cell.by[s.type] = (cell.by[s.type] || 0) + sec;
     });
     pc.forEach(function (row) { row.forEach(function (c) { c.tot = Math.round(c.tot); for (var t in c.by) c.by[t] = Math.round(c.by[t]); }); });
-    if (daily != null) daily.forEach(function (d) { d.tot = Math.round(d.tot); });
+    if (daily != null) daily.forEach(function (d) { d.tot = Math.round(d.tot); for (var type in d.by) d.by[type] = Math.round(d.by[type]); });
     durs.sort(function (a, b) { return a - b; });
     var median = durs.length ? durs[Math.floor(durs.length / 2)] : 0;
     var round = function (n) { return Math.round(n); };

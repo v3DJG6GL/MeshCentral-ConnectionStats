@@ -185,3 +185,105 @@ test('import coverage displays empty months between returned records', async () 
     assert.match(d.root.innerHTML, /2026-02<\/td>(<td class="num">0<\/td>){4}/);
     assert.match(d.root.innerHTML, /2026-08<\/td>(<td class="num">0<\/td>){4}/);
 });
+
+test('multi-year month charts preserve January and both charts label each year', async () => {
+    const d = await chart({ bucket: 'month', start: new Date(2023, 10, 1).getTime(), days: 1040 });
+    assert.equal(d.labels.filter(s => s == 'Jan').length, 3);
+    const sections = d.root.innerHTML.split('aria-label="Connected time per day"');
+    assert.equal(sections.length, 2);
+    for (const section of sections) {
+        for (const year of [2023, 2024, 2025, 2026]) assert.match(section, new RegExp('class="ax cs-year-tick"[^>]*>' + year + '</text>'));
+    }
+    const narrow = await chart({ bucket: 'month', width: 650, start: new Date(2023, 10, 1).getTime(), days: 1040 });
+    assert.equal(narrow.labels.filter(s => s == 'Jan').length, 3);
+});
+
+test('calendar days use shared totals and type breakdowns, including empty days', async () => {
+    const start = new Date(2023, 11, 1).getTime();
+    const d = await chart({ bucket: 'month', start });
+    let tip;
+    d.document.createElement = () => ({ style: {}, setAttribute() {}, offsetWidth: 200, offsetHeight: 100 });
+    d.document.body = { appendChild: el => { tip = el; } };
+    const cell = { dataset: { day: String(start) }, getAttribute: () => '', setAttribute() {}, removeAttribute() {},
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 12 }) };
+    cell.closest = () => cell;
+    d.handlers.pointerover({ target: cell, clientX: 30, clientY: 30 });
+    assert.equal(tip.hidden, false);
+    assert.match(tip.innerHTML, /Total<\/span><b>1h 00m/);
+    assert.match(tip.innerHTML, /background:#4477AA.*Desktop/);
+    assert.doesNotMatch(tip.innerHTML, /Click to filter/);
+    d.handlers.pointerout(); assert.equal(tip.hidden, true);
+    cell.dataset.day = String(start + 86400000);
+    d.handlers.focusin({ target: cell });
+    assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /No sessions/);
+    assert.match(tip.innerHTML, /Total<\/span><b>0s/);
+    assert.doesNotMatch(d.root.innerHTML, /class="cs-day"[^>]*><title>/);
+});
+
+test('session timeline shows years and shared session tooltips on hover and focus', async () => {
+    const d = await chart({ bucket: 'hour', start: new Date(2025, 11, 30).getTime(), days: 4 });
+    assert.match(d.root.innerHTML, /class="cs-tl-year"[^>]*>2025/);
+    assert.match(d.root.innerHTML, /class="cs-tl-year"[^>]*>2026/);
+    assert.match(d.root.innerHTML, /data-session="0" tabindex="0"/);
+    let tip;
+    d.document.createElement = () => ({ style: {}, setAttribute() {}, offsetWidth: 250, offsetHeight: 120 });
+    d.document.body = { appendChild: el => { tip = el; } };
+    const session = { dataset: { session: '0' }, getAttribute: () => '', setAttribute() {}, removeAttribute() {},
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 20 }) };
+    session.closest = () => session;
+    for (const event of ['pointerover', 'focusin']) {
+        d.handlers[event]({ target: session });
+        assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /Demo:.*2025/);
+        assert.match(tip.innerHTML, /Total<\/span><b>1h 00m/);
+        assert.match(tip.innerHTML, /background:#4477AA.*Desktop/);
+        assert.doesNotMatch(tip.innerHTML, /Click to filter/);
+        d.handlers.focusout(); assert.equal(tip.hidden, true);
+    }
+});
+
+test('empty bucket, weekday/hour and timeline fields show their context and zero totals', async () => {
+    const start = new Date(2023, 11, 1).getTime();
+    for (const [bucket, dataset] of [
+        ['day', { i: '1' }], ['day', { pc: '1', wd: '0', h: '23' }], ['hour', { track: 'Demo' }]
+    ]) {
+        const d = await chart({ bucket, start }); let tip;
+        d.document.createElement = () => ({ style: {}, setAttribute() {}, offsetWidth: 200, offsetHeight: 100 });
+        d.document.body = { appendChild: el => { tip = el; } };
+        const field = { dataset, classList: { contains: name => dataset.i != null && name == 'cs-bucket' }, getAttribute: () => '', setAttribute() {}, removeAttribute() {},
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 100 }) };
+        field.closest = () => field;
+        d.handlers.pointerover({ target: field, clientX: 50, clientY: 0 });
+        assert.equal(tip.hidden, false);
+        assert.match(tip.innerHTML, /Total<\/span><b>0s/); assert.match(tip.innerHTML, /No sessions/);
+        assert.doesNotMatch(tip.innerHTML, /cs-tip-heading"><\/div>/);
+        if (dataset.pc) assert.match(tip.innerHTML, /23:00 to 00:00/);
+        if (dataset.i) assert.match(d.root.innerHTML, /class="cs-bucket" data-i="1"/);
+        if (dataset.track) assert.match(d.root.innerHTML, /data-track="Demo"/);
+        if (bucket == 'day') {
+            assert.equal((d.root.innerHTML.match(/class="cs-pc-hit"/g) || []).length, 168);
+            assert.equal((d.root.innerHTML.match(/class="gl cs-pc-grid"/g) || []).length, 33);
+        }
+    }
+});
+
+test('share and where-time-went charts use custom breakdown tooltips without native titles', async () => {
+    const d = await chart({ bucket: 'day' }); let tip;
+    d.document.createElement = () => ({ style: {}, setAttribute() {}, offsetWidth: 220, offsetHeight: 140 });
+    d.document.body = { appendChild: el => { tip = el; } };
+    for (const dataset of [{ share: 'desktop' }, { where: '0', kind: 'group' }]) {
+        const el = { dataset, getAttribute: () => '', setAttribute() {}, removeAttribute() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 10 }) };
+        el.closest = () => el;
+        for (const event of ['pointerover', 'focusin']) {
+            d.handlers[event]({ target: el });
+            assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /Total<\/span><b>1h 00m/);
+            assert.match(tip.innerHTML, /background:#4477AA.*Desktop/);
+            assert.doesNotMatch(tip.innerHTML, /Click to filter/);
+            if (dataset.share) assert.match(tip.innerHTML, /100%/);
+            d.handlers.focusout(); assert.equal(tip.hidden, true);
+        }
+    }
+    const share = d.root.innerHTML.split('<div class="cs-donut">')[1].split('</ul></div>')[0];
+    const where = d.root.innerHTML.split('<div class="cs-hbars">')[1].split('</div></div></div>')[0];
+    assert.doesNotMatch(share, /<title>| title=/);
+    assert.doesNotMatch(where, /<title>| title=/);
+});
