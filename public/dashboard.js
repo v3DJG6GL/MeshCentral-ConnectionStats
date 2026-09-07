@@ -309,7 +309,7 @@
                 var r = 2 + Math.sqrt(c.tot / max) * (rh / 2 - 1.5), cx = +(L + cw * hh + cw / 2).toFixed(1), cy = +(T + rh * ri + rh / 2).toFixed(1);
                 var dim = sel && !(sel.wd == dw && sel.h == hh);
                 var tip = cellLabel(dw, hh) + ', ' + fmtDur(c.tot) + ': ' + TYPES.filter(function (t) { return c.by[t.k]; }).map(function (t) { return t.n + ' ' + fmtDur(c.by[t.k]); }).join(', ');
-                s += '<g class="pc' + (dim ? ' dim' : '') + '" data-pc="1" data-wd="' + dw + '" data-h="' + hh + '" tabindex="0" role="button" aria-label="' + esc(tip) + '"><title>' + esc(tip) + '</title>' + pie(cx, cy, +r.toFixed(1), c.by, c.tot) + '</g>';
+                s += '<g class="pc' + (dim ? ' dim' : '') + '" data-pc="1" data-wd="' + dw + '" data-h="' + hh + '" tabindex="0" role="button" aria-label="' + esc(tip) + '">' + pie(cx, cy, +r.toFixed(1), c.by, c.tot) + '</g>';
             }
         });
         return s + '</svg>';
@@ -548,7 +548,7 @@
         tipBar = null;
     }
     function showChartTip(ev) {
-        var bar = ev.target.closest && ev.target.closest('.bar');
+        var bar = ev.target.closest && ev.target.closest('.bar, .pc');
         if (!bar) { hideChartTip(); return; }
         if (!chartTip) {
             chartTip = document.createElement('div'); chartTip.id = 'cs-chart-tip';
@@ -557,8 +557,25 @@
         }
         if (tipBar && tipBar !== bar) tipBar.removeAttribute('aria-describedby');
         tipBar = bar;
-        var b = DATA && DATA.aggregate.buckets[Number(bar.dataset.i)];
-        chartTip.textContent = bar.getAttribute('aria-label') + (b ? '\nPeriod total: ' + fmtDur(b.tot) : '') + '\nClick to filter sessions';
+        var a = DATA && DATA.aggregate, cell = null, heading = bar.getAttribute('aria-label');
+        if (a && bar.dataset.pc != null) {
+            var wd = Number(bar.dataset.wd), hour = Number(bar.dataset.h);
+            cell = a.punchcard && a.punchcard[wd] && a.punchcard[wd][hour];
+            heading = cellLabel(wd, hour);
+        } else if (a) {
+            cell = a.buckets[Number(bar.dataset.i)];
+            if (cell) heading = longLabel(cell, a.bucket);
+        }
+        var html = '<div class="cs-tip-heading">' + esc(heading) + '</div>';
+        if (cell) {
+            html += '<div class="cs-tip-total"><span>Total</span><b>' + fmtDur(cell.tot) + '</b></div>';
+            html += TYPES.filter(function (t) { return cell.by[t.k] > 0; }).map(function (t) {
+                return '<div class="cs-tip-row"><i aria-hidden="true" style="background:' + t.c + '"></i><span>' + esc(t.n) + '</span><b>' + fmtDur(cell.by[t.k]) + '</b></div>';
+            }).join('');
+        }
+        html += '<div class="cs-tip-hint">Click to filter sessions</div>';
+        // Pointer movement only repositions the tooltip; keep its contents stable.
+        if (chartTip.innerHTML != html) chartTip.innerHTML = html;
         chartTip.hidden = false; bar.setAttribute('aria-describedby', chartTip.id);
         var rect = bar.getBoundingClientRect();
         var x = ev.clientX == null ? rect.left + rect.width / 2 : ev.clientX;
@@ -568,7 +585,11 @@
     }
     root.addEventListener('pointerover', showChartTip);
     root.addEventListener('pointermove', showChartTip);
-    root.addEventListener('pointerout', hideChartTip);
+    root.addEventListener('pointerout', function (ev) {
+        var next = ev && ev.relatedTarget;
+        if (next && next.closest && next.closest('.bar, .pc') === tipBar) return;
+        hideChartTip();
+    });
     root.addEventListener('focusin', showChartTip);
     root.addEventListener('focusout', hideChartTip);
     window.addEventListener('scroll', hideChartTip, true);

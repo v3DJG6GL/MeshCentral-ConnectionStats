@@ -10,7 +10,7 @@ function dashboard({ storage = new Map(), hash = '', boot = {}, width = 1000, re
     const root = { innerHTML: '', clientWidth: width, addEventListener: (k, f) => { handlers[k] = f; }, querySelectorAll: () => inputs };
     const document = { getElementById: () => root, documentElement: { classList: { toggle() {} } }, addEventListener() {}, activeElement: null };
     const location = { hash, pathname: '/pluginadmin.ashx' };
-    const window = { CS_BOOT: { user: 'user//admin', ...boot }, addEventListener() {} };
+    const window = { innerWidth: width, innerHeight: 800, CS_BOOT: { user: 'user//admin', ...boot }, addEventListener() {} };
     window.parent = window;
     vm.runInNewContext(source, { window, document, location, history: { replaceState: (_, __, h) => { location.hash = h; } },
         localStorage: { getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v) },
@@ -76,8 +76,8 @@ test('chart hover and keyboard focus show an immediate tooltip and clear it on e
     d.document.body = { appendChild: el => { tip = el; } };
     d.handlers.pointerover({ target: bar, clientX: 30, clientY: 40 });
     assert.equal(tip.hidden, false);
-    assert.match(tip.textContent, /Desktop, 5m/);
-    assert.match(tip.textContent, /Click to filter sessions/);
+    assert.match(tip.innerHTML, /Desktop, 5m/);
+    assert.match(tip.innerHTML, /Click to filter sessions/);
     assert.equal(attrs['aria-describedby'], 'cs-chart-tip');
     d.handlers.pointerout();
     assert.equal(tip.hidden, true);
@@ -88,11 +88,11 @@ test('chart hover and keyboard focus show an immediate tooltip and clear it on e
     assert.equal(tip.hidden, true);
 });
 
-async function chart({ bucket, width = 2400, days = 30, start = new Date(2023, 11, 1).getTime() }) {
+async function chart({ bucket, width = 2400, days = 30, start = new Date(2023, 11, 1).getTime(), extra = [] }) {
     const end = new Date(start); end.setDate(end.getDate() + days);
     const aggregate = require('../aggregate.js').aggregate([
         { _id: 's_demo', start: start + 3600000, end: start + 7200000, type: 'desktop', nodeid: 'node//demo', nodename: 'Demo' }
-    ], { start, end: +end, bucket, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    ].concat(extra), { start, end: +end, bucket, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     const sessions = { rows: [{ node: 'Demo', start: start + 3600000, end: start + 7200000, type: 'desktop' }], total: 1 };
     const d = dashboard({ width, storage: new Map([['loctag', 'de-CH']]),
         hash: '#preset=custom&start=' + start + '&end=' + (+end) + '&bucket=' + bucket,
@@ -128,4 +128,43 @@ test('short hourly ranges show times, with date context when crossing midnight',
     const multi = await chart({ bucket: 'hour', days: 2 });
     assert.ok(multi.labels.every(s => /\.12.*\d\d:\d\d/.test(s)));
     assert.ok(multi.labels.some(s => /2\.12/.test(s)));
+});
+
+test('bars and weekday bubbles share totals, colored type rows and hover/focus behavior', async () => {
+    const start = new Date(2023, 11, 1).getTime();
+    const d = await chart({ bucket: 'day', start, extra: [
+        { _id: 's_files', start: start + 3600000, end: start + 5400000, type: 'files', nodeid: 'node//demo' }
+    ] });
+    let tip;
+    d.document.createElement = () => ({ style: {}, setAttribute() {}, offsetWidth: 220, offsetHeight: 150 });
+    d.document.body = { appendChild: el => { tip = el; } };
+    const makeTarget = dataset => {
+        const attrs = {};
+        const el = { dataset, closest: () => el, getAttribute: k => attrs[k],
+            setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: k => { delete attrs[k]; },
+            getBoundingClientRect: () => ({ left: 20, top: 30, width: 10 }) };
+        return el;
+    };
+    const bar = makeTarget({ i: '0', t: 'desktop' });
+    const bubble = makeTarget({ pc: '1', wd: String(new Date(start).getDay()), h: '1' });
+    let barBreakdown;
+    for (const el of [bar, bubble]) {
+        // A pointer on a nested pie slice resolves to the parent bubble.
+        d.handlers.pointerover({ target: { closest: () => el }, clientX: 2399, clientY: 799 });
+        assert.equal(tip.hidden, false);
+        assert.match(tip.innerHTML, /Total<\/span><b>1h 30m/);
+        assert.match(tip.innerHTML, /background:#4477AA.*Desktop<\/span><b>1h 00m/);
+        assert.match(tip.innerHTML, /background:#CCBB44.*Files<\/span><b>30m/);
+        assert.doesNotMatch(tip.innerHTML, /Terminal/);
+        const breakdown = tip.innerHTML.slice(tip.innerHTML.indexOf('<div class="cs-tip-total">'));
+        if (el === bar) barBreakdown = breakdown; else assert.equal(breakdown, barBreakdown);
+        assert.ok(parseFloat(tip.style.left) + 220 <= 2400);
+        assert.ok(parseFloat(tip.style.top) + 150 <= 800);
+        d.handlers.pointerout({ relatedTarget: { closest: () => el } });
+        assert.equal(tip.hidden, false, 'moving between slices does not hide the tooltip');
+        d.handlers.pointerout({ relatedTarget: null }); assert.equal(tip.hidden, true);
+        d.handlers.focusin({ target: el }); assert.equal(tip.hidden, false);
+        d.handlers.focusout(); assert.equal(tip.hidden, true);
+    }
+    assert.doesNotMatch(d.root.innerHTML, /class="pc[^>]*><title>/);
 });

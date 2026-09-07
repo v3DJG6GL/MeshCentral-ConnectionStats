@@ -54,11 +54,18 @@ button { font: inherit; }
 .cs .bar { cursor: pointer; }
 .cs .bar.dim { opacity: .3; }
 .cs .bar:hover, .cs .bar:focus-visible { opacity: 1; filter: brightness(1.2); stroke: var(--t); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.cs-chart-tip { position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 16px)); padding: 8px 10px; border: 1px solid var(--axis); border-radius: 4px; background: var(--p); color: var(--t); box-shadow: 0 3px 12px #0004; white-space: pre-line; pointer-events: none; }
+.cs-chart-tip { position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 16px)); padding: 8px 10px; border: 1px solid var(--axis); border-radius: 4px; background: var(--p); color: var(--t); box-shadow: 0 3px 12px #0004; pointer-events: none; }
+.cs-tip-heading { font-weight: bold; margin-bottom: 6px; }
+.cs-tip-total { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--r); }
+.cs-tip-row { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; align-items: center; gap: 7px; margin: 3px 0; }
+.cs-tip-row i { width: 9px; height: 9px; border-radius: 2px; }
+.cs-tip-row b { font-weight: normal; margin-left: 14px; }
+.cs-tip-hint { color: var(--m); font-size: 11px; margin-top: 7px; }
 @media print { .cs-chart-tip { display: none; } }
 .cs .pc { cursor: pointer; outline: none; }
 .cs .pc.dim { opacity: .25; }
-.cs .pc:focus-visible circle, .cs .pc:focus-visible path { stroke: var(--focus); stroke-width: 2; }
+.cs .pc:hover, .cs .pc:focus-visible { opacity: 1; filter: brightness(1.2); }
+.cs .pc:hover circle, .cs .pc:hover path, .cs .pc:focus-visible circle, .cs .pc:focus-visible path { stroke: var(--t); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .cs .prev { pointer-events: none; fill: none; stroke: var(--axis); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .cs-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--m); font-size: 11px; }
 .cs-legend span { display: inline-flex; gap: 5px; align-items: center; }

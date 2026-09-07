@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.13
+
+- Connected-time and weekday/hour charts share immediate hover and keyboard-focus
+  tooltips showing total duration and a breakdown by connection type with color
+  markers. Weekday/hour bubbles also highlight on hover and focus.
+
 ## 0.2.12
 
 - Direct database import defaults to all retained history (days back = 0), using
