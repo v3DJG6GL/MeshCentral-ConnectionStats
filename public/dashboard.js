@@ -42,10 +42,12 @@
     var LOC;
     try { var lt = localStorage.getItem('loctag'); if (lt && lt != '*' && /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(lt)) LOC = lt; } catch (e) { }
     function dtf(opts) { try { return new Intl.DateTimeFormat(LOC, opts); } catch (e) { return new Intl.DateTimeFormat(undefined, opts); } }
-    var F_DATE = dtf({ day: 'numeric', month: 'short', year: 'numeric' }),
-        F_DT = dtf({ weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        F_WDD = dtf({ weekday: 'short', day: 'numeric' }), F_DM = dtf({ day: 'numeric', month: 'short' }),
-        F_WDDM = dtf({ weekday: 'short', day: 'numeric', month: 'short' }), F_WDDMY = dtf({ weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+    // numeric dates, as MeshCentral's toLocaleDateString gives them ("7.9.2026" for de-CH,
+    // "07/09/2026" for en-GB); month names only where a chart axis needs them
+    var F_DATE = dtf({ day: 'numeric', month: 'numeric', year: 'numeric' }),
+        F_DT = dtf({ weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        F_WDD = dtf({ weekday: 'short', day: 'numeric' }), F_DM = dtf({ day: 'numeric', month: 'numeric' }),
+        F_WDDM = dtf({ weekday: 'short', day: 'numeric', month: 'numeric' }), F_WDDMY = dtf({ weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric' }),
         F_M = dtf({ month: 'short' }), F_MY = dtf({ month: 'short', year: 'numeric' }), F_WD = dtf({ weekday: 'short' });
     // 2023-01-01 was a Sunday; the arrays keep MeshCentral's Sunday-first weekday index
     var DOW = [0, 1, 2, 3, 4, 5, 6].map(function (i) { return F_WD.format(new Date(2023, 0, 1 + i)); });

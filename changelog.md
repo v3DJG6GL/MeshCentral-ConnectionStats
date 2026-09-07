@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- Dates are written the way MeshCentral itself writes them for the chosen
+  locale: numeric, "7.9.2026" for de-CH, "07/09/2026" for en-GB. 0.2.6 used
+  month names ("7. Sept. 2026").
+
 ## 0.2.6
 
 - **"All" period**: from the oldest recorded session in the current scope to
