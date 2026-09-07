@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.10
+
+- MongoDB backup imports recover device and group names from backup records.
+  Re-importing repairs missing names without duplicating sessions.
+- Chart bars highlight on hover and keyboard focus, with immediate tooltips
+  showing the date, connection type, duration and period total.
+- Daily chart labels use the available width instead of a fixed label count.
+- Hourly charts spanning multiple days include date context, and session
+  timeline labels follow the actual selected range.
+
 ## 0.2.9
 
 - Custom dates wait for Apply or Enter so the full year can be typed without
