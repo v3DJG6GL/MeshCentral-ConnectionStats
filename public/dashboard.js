@@ -7,19 +7,34 @@
 (function () {
     'use strict';
     var BOOT = window.CS_BOOT || {};
-    // night mode: MeshCentral puts a 'night' class on its body. This page is embedded by the
-    // same origin (My Server > Plugins iframe, device tab iframe), so read the parent's body
-    // class directly and follow changes; the boot flag and a posted message are the fallbacks
-    // for the cases where the parent is not reachable.
+    // Embedded pages inherit the host. Standalone/PWA settings windows have no parent,
+    // so use an explicit launch hint or MeshCentral's persisted preference (0 = system,
+    // 1 = dark, 2 = light). Do not treat the server's default night:false as a preference.
     function setNight(on) { document.documentElement.classList.toggle('night', !!on); }
     function parentBody() {
         try { if (window.parent && window.parent !== window) return window.parent.document.body; } catch (e) { }
         return null;
     }
-    var pb = parentBody();
-    setNight(pb ? pb.classList.contains('night') : BOOT.night);
+    var pb = parentBody(), themeMedia = null, launchHint = BOOT.nightExplicit === true || BOOT.night === true;
+    try { if (window.matchMedia) themeMedia = window.matchMedia('(prefers-color-scheme: dark)'); } catch (e) { }
+    function refreshTheme() {
+        if (pb) { setNight(pb.classList.contains('night')); return; }
+        if (launchHint) { setNight(BOOT.night); return; }
+        var saved = null;
+        try { saved = localStorage.getItem('nightMode'); } catch (e) { }
+        setNight(saved === '1' ? true : saved === '2' ? false : !!(themeMedia && themeMedia.matches));
+    }
+    refreshTheme();
     if (pb && typeof MutationObserver == 'function') {
-        try { new MutationObserver(function () { setNight(pb.classList.contains('night')); }).observe(pb, { attributes: true, attributeFilter: ['class'] }); } catch (e) { }
+        try { new MutationObserver(refreshTheme).observe(pb, { attributes: true, attributeFilter: ['class'] }); } catch (e) { }
+    }
+    window.addEventListener('storage', function (ev) {
+        if (ev.key === 'nightMode' || ev.key === null) { launchHint = false; refreshTheme(); }
+    });
+    if (themeMedia) {
+        var themeChanged = function () { if (!launchHint) refreshTheme(); };
+        if (themeMedia.addEventListener) themeMedia.addEventListener('change', themeChanged);
+        else if (themeMedia.addListener) themeMedia.addListener(themeChanged);
     }
     window.addEventListener('message', function (ev) { var d = ev.data; if (d && d.cs == 'night') setNight(d.night); });
 

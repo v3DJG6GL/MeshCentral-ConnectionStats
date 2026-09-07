@@ -768,7 +768,7 @@ module.exports.connectionstats = function (parent) {
         if (obj.db == null) { res.status(503).send('Connection Stats is still starting'); return; }
         if (req.query.api != null) { obj.handleApi(req, res, user); return; }
         if (req.query.file != null) { obj.serveFile(req, res); return; }
-        var boot = { view: 'full', night: (req.query.night == '1'), version: PLUGIN_VERSION, user: user._id, isAdmin: obj.isAdmin(user) };
+        var boot = { view: 'full', night: (req.query.night == '1'), nightExplicit: (req.query.night == '1' || req.query.night == '0'), version: PLUGIN_VERSION, user: user._id, isAdmin: obj.isAdmin(user) };
         if (req.query.view == 'device' && typeof req.query.nodeid == 'string' && req.query.nodeid.length < 300) {
             boot.view = 'device'; boot.scope = 'node:' + req.query.nodeid;
         } else if (typeof req.query.scope == 'string' && req.query.scope.length < 300) {

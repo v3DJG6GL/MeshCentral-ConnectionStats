@@ -21,11 +21,78 @@ function init(s) {
     s.allocations = s.allocations || {};
     s.device = s.device || {
         since: Date.now(),
-        preferences: { prompt: 'always', presentation: 'drawer' },
+        preferences: { prompt: 'always', presentation: 'drawer', minSeconds: 0 },
         suppressed: {},
         operations: {},
     };
+    s.device.preferences = {
+        prompt: 'always',
+        presentation: 'drawer',
+        minSeconds: 0,
+        ...s.device.preferences,
+    };
     return s.device;
+}
+function effectivePrompt(rule, cfg) {
+    return ['always', 'issues', 'never'].includes(rule?.prompt) ? rule.prompt : cfg.preferences.prompt;
+}
+function strictPrompt(a, b) {
+    const order = ['never', 'issues', 'always'];
+    return order[Math.max(order.indexOf(a), order.indexOf(b), 0)];
+}
+function minimum(rule, cfg) {
+    return rule?.minSeconds == null ? cfg.preferences.minSeconds : rule.minSeconds;
+}
+function ruleSpan(doc, begin, end, rule, cfg) {
+    return { ...span(doc, begin, end), minSeconds: minimum(rule, cfg), prompt: effectivePrompt(rule, cfg) };
+}
+function excludeShort(a, known, s) {
+    if (a.origin !== 'rule' || a.blocks.length || a.remoteLive || a.end == null) return;
+    const short = a.spans.filter((x) => {
+        const d = known.find((d) => d?._id === x.sessionId);
+        return d && !d.truncated && d.end != null && d.end - d.start < (x.minSeconds || 0) * 1000;
+    });
+    if (!short.length) return;
+    const remaining = a.spans.filter((x) => !short.includes(x)).sort((x, y) => x.begin - y.begin);
+    if (!remaining.length) {
+        a.status = 'excluded';
+        a.review = false;
+        a.exclusionReason = 'Below minimum connected-session duration';
+        return;
+    }
+    for (const x of short) {
+        const excluded = {
+            ...a,
+            id: crypto.randomUUID(),
+            source: [x.sessionId],
+            spans: [x],
+            begin: x.begin,
+            end: x.end,
+            status: 'excluded',
+            review: false,
+            exclusionReason: 'Below minimum connected-session duration',
+            blocks: [],
+        };
+        s.allocations[excluded.id] = excluded;
+    }
+    const groups = [];
+    for (const x of remaining) {
+        const last = groups[groups.length - 1];
+        if (!last || x.begin > Math.max(...last.map((y) => y.end))) groups.push([x]);
+        else last.push(x);
+    }
+    const base = { ...a };
+    groups.forEach((spans, i) => {
+        const item = i ? { ...base, id: crypto.randomUUID() } : a;
+        Object.assign(item, {
+            spans,
+            source: [...new Set(spans.map((x) => x.sessionId))],
+            begin: Math.min(...spans.map((x) => x.begin)),
+            end: Math.max(...spans.map((x) => x.end)),
+            prompt: spans.reduce((p, x) => strictPrompt(p, x.prompt || base.prompt), 'never'),
+        });
+        s.allocations[item.id] = item;
+    });
 }
 function cuts(s, doc) {
     const out = Object.values(s.allocations || {}).flatMap((a) =>
@@ -84,16 +151,14 @@ function reserved(s, block) {
             begin: x.from,
             end: x.end,
         }));
-        return spans
-            .concat(suppressed)
-            .some(
-                (x) =>
-                    block.basis === 'active' ||
-                    overlap(x, {
-                        begin: block.coverageBegin ?? block.begin,
-                        end: block.coverageEnd ?? block.end,
-                    }),
-            );
+        return spans.concat(suppressed).some(
+            (x) =>
+                block.basis === 'active' ||
+                overlap(x, {
+                    begin: block.coverageBegin ?? block.begin,
+                    end: block.coverageEnd ?? block.end,
+                }),
+        );
     });
 }
 function destination(row) {
@@ -164,6 +229,8 @@ class Device {
     }
     public(a, s) {
         const { draft, ...out } = a;
+        out.prompt = a.prompt || s.device?.preferences.prompt || 'always';
+        out.overlap = (a.blocks || []).map((id) => s.ledger[id]?.overlap).find(Boolean) || null;
         out.seconds = Math.max(0, ((a.end ?? second(Date.now())) - a.begin) / 1000);
         out.remoteIds = (a.blocks || []).map((id) => s.ledger[id]?.remoteId).filter(Boolean);
         out.remoteSeconds = (a.blocks || []).reduce((n, id) => n + (s.ledger[id]?.remoteSeconds || 0), 0);
@@ -207,7 +274,10 @@ class Device {
                     nodeid: x.nodeid,
                     name: x.nodename || x.nodeid,
                     type: x.type,
-                    mapped: x.source === 'live' && !x.guest && !!match(x, s.rules || []) &&
+                    mapped:
+                        x.source === 'live' &&
+                        !x.guest &&
+                        !!match(x, s.rules || []) &&
                         subtract(x.start, x.end, cuts(s, x)).some((piece) => piece.end == null),
                     basis: match(x, s.rules || [])?.basis || null,
                     start: x.start,
@@ -234,7 +304,11 @@ class Device {
         const mapped = (doc, r) =>
             destination({
                 ...r,
-                ...(build([{ ...doc, end: doc.end ?? Math.max(now, doc.start + 1000) }], [r], s.tz)[0] || {}),
+                ...(build(
+                    [{ ...doc, end: doc.end ?? Math.max(now, doc.start + 1000) }],
+                    [{ ...r, minSeconds: 0 }],
+                    s.tz,
+                )[0] || {}),
             });
         // Adopt existing owned live records; their eventual end must still reach Kimai.
         for (const l of Object.values(s.ledger))
@@ -278,6 +352,7 @@ class Device {
                 a.end = Math.max(...a.spans.map((x) => x.end));
                 a.review = true;
                 a.status = 'review';
+                excludeShort(a, known, s);
                 changed = true;
             }
             if (changed) revise(a);
@@ -307,10 +382,16 @@ class Device {
                     continue;
                 if (current) {
                     current.source.push(doc._id);
-                    current.spans.push(span(doc, Math.max(piece.begin, current.begin), null));
+                    current.spans.push(ruleSpan(doc, Math.max(piece.begin, current.begin), null, r, cfg));
+                    current.prompt = strictPrompt(
+                        current.prompt || cfg.preferences.prompt,
+                        effectivePrompt(r, cfg),
+                    );
                     revise(current);
                 } else {
                     const a = make([doc], mapped(doc, r), piece.begin, null, 'rule');
+                    a.prompt = effectivePrompt(r, cfg);
+                    a.spans = [ruleSpan(doc, piece.begin, null, r, cfg)];
                     s.allocations[a.id] = a;
                 }
             } else {
@@ -335,6 +416,15 @@ class Device {
                         piece.end,
                         r ? 'rule' : 'unmatched',
                     );
+                    a.prompt = effectivePrompt(r, cfg);
+                    a.spans = [ruleSpan(doc, piece.begin, piece.end, r, cfg)];
+                    if (!doc.truncated && doc.end - doc.start < minimum(r, cfg) * 1000) {
+                        a.status = 'excluded';
+                        a.review = false;
+                        a.exclusionReason = 'Below minimum connected-session duration';
+                        s.allocations[a.id] = a;
+                        continue;
+                    }
                     if (r?.basis === 'active') {
                         a.sourceEnd = doc.end;
                         a.active = doc.active;
@@ -385,6 +475,7 @@ class Device {
                         merged.end = Math.max(merged.end, a.end);
                         merged.source = [...new Set(merged.source.concat(a.source))];
                         merged.spans.push(...a.spans);
+                        merged.prompt = strictPrompt(merged.prompt || cfg.preferences.prompt, a.prompt);
                         merged.description = [...new Set([merged.description, a.description])]
                             .join('; ')
                             .slice(0, 1000);
@@ -495,7 +586,7 @@ class Device {
             if (
                 a.sendRequested ||
                 (a.origin === 'rule' &&
-                    cfg.preferences.prompt !== 'always' &&
+                    (a.prompt || cfg.preferences.prompt) !== 'always' &&
                     !a.error &&
                     (s.live || (s.nightly && p.h >= 2 && a.end <= today)))
             ) {
@@ -536,7 +627,11 @@ class Device {
                 !['drawer', 'dialog'].includes(input.presentation)
             )
                 throw Error('Invalid review preference');
-            cfg.preferences = { prompt: input.prompt, presentation: input.presentation };
+            const minSeconds =
+                input.minSeconds == null ? cfg.preferences.minSeconds : Number(input.minSeconds);
+            if (!Number.isInteger(minSeconds) || minSeconds < 0 || minSeconds > 86400)
+                throw Error('Minimum duration must be whole seconds between 0 and 86400');
+            cfg.preferences = { prompt: input.prompt, presentation: input.presentation, minSeconds };
             return remember({ ok: true });
         }
         if (!s.token) throw Error('Connect to Kimai in your personal settings first');
@@ -897,4 +992,4 @@ class Device {
             throw Error('Activity is unavailable for this project');
     }
 }
-module.exports = { Device, subtract, available, cuts, destination, reserved };
+module.exports = { Device, init, subtract, available, cuts, destination, reserved };

@@ -528,3 +528,120 @@ test('device state identifies mapped pending sessions without enabling live auto
     v = await f.view();
     assert.equal(v.sessions[0].mapped, false, 'stopped contributions must not imply ongoing mapped capture');
 });
+
+test('rule prompt overrides personal defaults and strictest concurrent contributor wins', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    await f.action('preferences', { prompt: 'never', presentation: 'drawer', minSeconds: 0 });
+    const s = await f.service.state(f.user);
+    s.live = true;
+    s.rules = [
+        { ...f.dest, basis: 'connected', device: 'node//a', prompt: 'always' },
+        { ...f.dest, basis: 'connected', prompt: 'never' },
+    ];
+    await f.service.save(f.user, s);
+    const a = f.doc('a', 0),
+        b = f.doc('b', 0);
+    let v = await f.view();
+    assert.equal(v.allocations.length, 1);
+    assert.equal(v.allocations[0].prompt, 'always');
+    f.step(10000);
+    a.end = b.end = f.now;
+    v = await f.view();
+    const state = await f.service.state(f.user);
+    await f.service.device.flush(f.user, state, f.c);
+    assert.equal(f.remotes.length, 0, 'always review prevents automatic export');
+});
+
+test('minimum duration durably excludes short automatic sessions while raw stats survive', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    await f.action('preferences', { prompt: 'always', presentation: 'drawer', minSeconds: 60 });
+    const s = await f.service.state(f.user);
+    s.rules = [{ ...f.dest, basis: 'connected' }];
+    await f.service.save(f.user, s);
+    const d = f.doc('short', 0);
+    f.step(59000);
+    d.end = f.now;
+    let v = await f.view();
+    assert.equal(v.allocations[0].status, 'excluded');
+    assert.equal(v.reviews.length, 0);
+    const state = await f.service.state(f.user);
+    assert.deepEqual(available(state, [d]), []);
+    assert.equal((await f.db.getSession(d._id)).end - d.start, 59000);
+    await f.action('preferences', { prompt: 'always', presentation: 'drawer', minSeconds: 0 });
+    v = await f.view();
+    assert.equal(v.allocations.length, 1);
+    assert.equal(v.allocations[0].status, 'excluded');
+});
+
+test('per-rule minimum zero overrides personal default and manual tracking is exempt', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    await f.action('preferences', { prompt: 'always', presentation: 'drawer', minSeconds: 60 });
+    const s = await f.service.state(f.user);
+    s.rules = [{ ...f.dest, basis: 'connected', minSeconds: 0 }];
+    await f.service.save(f.user, s);
+    const d = f.doc('rule', 0);
+    f.step(10000);
+    d.end = f.now;
+    let v = await f.view();
+    assert.equal(v.allocations[0].status, 'review');
+    const manual = f.doc('manual', 0);
+    const started = await f.action('start', { sessions: [manual._id], destination: f.dest, from: 'now' });
+    f.step(10000);
+    manual.end = f.now;
+    v = await f.view();
+    assert.equal(v.allocations.find((a) => a.id === started.id).status, 'review');
+});
+
+test('open rule recording below minimum is excluded on disconnect without remote deletion', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    const s = await f.service.state(f.user);
+    s.live = true;
+    s.rules = [{ ...f.dest, basis: 'connected', minSeconds: 60 }];
+    await f.service.save(f.user, s);
+    const d = f.doc('open', 0);
+    let v = await f.view();
+    assert.equal(v.allocations[0].status, 'recording-local');
+    f.step(10000);
+    d.end = f.now;
+    v = await f.view();
+    assert.ok(v.allocations.every((a) => a.status === 'excluded'));
+    assert.equal(v.reviews.length, 0);
+    assert.equal(f.calls.filter((c) => c.method === 'DELETE').length, 0);
+});
+
+test('shared recording removes a short contributor without discarding eligible time', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    const s = await f.service.state(f.user);
+    s.live = true;
+    s.rules = [
+        { ...f.dest, basis: 'connected', device: 'node//short', minSeconds: 60, prompt: 'always' },
+        { ...f.dest, basis: 'connected', minSeconds: 0, prompt: 'never' },
+    ];
+    await f.service.save(f.user, s);
+    const short = f.doc('short', 0);
+    await f.view();
+    f.step(5000);
+    const long = f.doc('long', 0);
+    await f.view();
+    f.step(5000);
+    short.end = f.now;
+    await f.view();
+    f.step(65000);
+    long.end = f.now;
+    const v = await f.view();
+    const eligible = v.allocations.find((a) => a.status === 'review');
+    assert.deepEqual(eligible.source, ['long']);
+    assert.equal(eligible.begin, long.start);
+    assert.equal(eligible.prompt, 'never');
+    assert.equal(v.allocations.find((a) => a.status === 'excluded').source[0], 'short');
+});

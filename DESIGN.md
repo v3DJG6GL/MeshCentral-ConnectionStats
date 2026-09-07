@@ -291,3 +291,19 @@ another Kimai client's timer remains untouched. Existing owned remote timers are
 reconciled, while new completed entries use the shared synchronization ledger.
 Automation remains disabled by default; review defaults to always. See readme.md for
 migration behavior, recovery, setup and validation limits.
+
+
+### Recording review refinements (0.4.2)
+
+Personal prompt, presentation and minimum-duration defaults live on the Kimai
+settings page. Ordered rules override prompt/minimum independently; automatic
+recordings snapshot effective policies per source. Shared recordings apply the
+strictest review prompt. Short contributors receive durable exclusions and never
+fill a gap between remaining eligible intervals. Raw ConnectionStats sessions and
+already-exported Kimai entries are preserved.
+
+The inbox displays the effective draft and offers approval/discard with inline
+confirmation; flagged entries open the editor. Decisions return to the inbox.
+Remote-overlap feedback includes timestamps and rounding evidence, with a draft-only
+boundary adjustment requiring an explicit reviewed send. Standalone settings carry
+the originating theme and fall back to the stored MeshCentral/system preference.

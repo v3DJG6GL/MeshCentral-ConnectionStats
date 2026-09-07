@@ -29,7 +29,11 @@
         return request(api, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'kimai', csrf: state.csrf, data: JSON.stringify(data) }).toString(),
+            body: new URLSearchParams({
+                action: 'kimai',
+                csrf: state.csrf,
+                data: JSON.stringify(data),
+            }).toString(),
         });
     }
     function input(name, value, type) {
@@ -58,7 +62,11 @@
             !rows.some(function (r) {
                 return String(r.id == null ? r._id : r.id) === String(value);
             })
-                ? '<option selected value="' + esc(value) + '">Unavailable destination #' + esc(value) + '</option>'
+                ? '<option selected value="' +
+                  esc(value) +
+                  '">Unavailable destination #' +
+                  esc(value) +
+                  '</option>'
                 : '') +
             (empty != null ? '<option value="">' + esc(empty) + '</option>' : '') +
             rows
@@ -147,6 +155,21 @@
                 ],
                 r.billable !== false ? 'true' : 'false',
             ) +
+            '</label><label>Open review after disconnect' +
+            select(
+                'prompt',
+                [
+                    { id: 'inherit', name: 'Use personal default' },
+                    { id: 'always', name: 'Always' },
+                    { id: 'issues', name: 'Only when attention is needed' },
+                    { id: 'never', name: 'Never automatically' },
+                ],
+                r.prompt || 'inherit',
+            ) +
+            '</label><label>Minimum session length (seconds)' +
+            '<input name="minSeconds" type="number" min="0" max="86400" step="1" placeholder="Use personal default" value="' +
+            esc(r.minSeconds == null ? '' : r.minSeconds) +
+            '">' +
             '</label><label>Description' +
             input('description', r.description) +
             '</label><label>Tags' +
@@ -186,6 +209,31 @@
             '</p><label>Personal API token <input type="password" name="token" autocomplete="new-password" required></label> <button>Test and save token</button>' +
             (state.connected ? ' <button type="button" data-disconnect>Disconnect</button>' : '') +
             '</form>';
+        var prefs = state.recordingPreferences || {};
+        h +=
+            '<form data-form="recording-preferences" class="km-panel"><h2>Recording preferences</h2><p>Personal defaults for all devices. Each mapping rule can override when review opens and the minimum session length.</p><div class="km-fields"><label>Open review after disconnect';
+        h +=
+            select(
+                'prompt',
+                [
+                    { id: 'always', name: 'Always' },
+                    { id: 'issues', name: 'Only when attention is needed' },
+                    { id: 'never', name: 'Never automatically' },
+                ],
+                prefs.prompt || 'always',
+            ) +
+            '</label><label>Review presentation' +
+            select(
+                'presentation',
+                [
+                    { id: 'drawer', name: 'Side panel' },
+                    { id: 'dialog', name: 'Centered panel' },
+                ],
+                prefs.presentation || 'drawer',
+            ) +
+            '</label><label>Minimum session length (seconds)<input name="minSeconds" type="number" min="0" max="86400" step="1" required value="' +
+            esc(prefs.minSeconds || 0) +
+            '"></label></div><p>Shorter sessions are excluded from Kimai review and automatic export; ConnectionStats keeps the original statistics. Zero disables the minimum. Manually started timers are kept for your decision.</p><button>Save recording preferences</button></form>';
         if (state.connected) {
             h +=
                 '<form data-form="settings" class="km-panel"><h2>Mapping rules</h2><p>First matching rule wins. Unmatched and guest sessions are not sent. Description placeholders: {device}, {group}, {types}, {admin}, {date}, {sessions}.</p>' +
@@ -196,7 +244,7 @@
                 (state.nightly ? ' checked' : '') +
                 '> Nightly sync at 02:00 (' +
                 esc(state.timezone) +
-                ')</label></p><button>Save rules and automation</button><p>Recording review preferences apply to your account across all devices and rules.</p><button type="button" data-device-preferences>My recording preferences</button></form>';
+                ')</label></p><button>Save rules and automation</button></form>';
             var q = new URLSearchParams(location.hash.slice(1)),
                 start = Number(q.get('start')) || Date.now() - 86400000,
                 end = Number(q.get('end')) || Date.now();
@@ -233,7 +281,13 @@
                                 '</td><td>' +
                                 input('description', b.description) +
                                 '</td><td>' +
-                                esc(window.CS_FORMAT_DURATION(b.seconds) + ' · ' + b.basis + ' · ' + (b.status || 'new')) +
+                                esc(
+                                    window.CS_FORMAT_DURATION(b.seconds) +
+                                        ' · ' +
+                                        b.basis +
+                                        ' · ' +
+                                        (b.status || 'new'),
+                                ) +
                                 (b.issue
                                     ? '<p>' +
                                       esc(b.issue) +
@@ -263,7 +317,9 @@
                               (l.remoteId ? ' · #' + esc(l.remoteId) : '') +
                               '</td><td>' +
                               esc(l.error || l.warning || l.description) +
-                              (l.remoteSeconds != null ? '<br>Kimai: ' + esc(l.remoteSeconds) + ' seconds' : '') +
+                              (l.remoteSeconds != null
+                                  ? '<br>Kimai: ' + esc(l.remoteSeconds) + ' seconds'
+                                  : '') +
                               '</td><td>' +
                               (['conflict', 'error', 'creating'].includes(l.status)
                                   ? (l.remoteId
@@ -345,6 +401,16 @@
                 f.elements.token.value = '';
                 await post({ op: op, token: token });
             }
+            if (op === 'recording-preferences') {
+                await post({
+                    op: 'device',
+                    command: 'preferences',
+                    requestId: crypto.randomUUID(),
+                    prompt: fd.get('prompt'),
+                    presentation: fd.get('presentation'),
+                    minSeconds: Number(fd.get('minSeconds')),
+                });
+            }
             if (op === 'settings') {
                 captureRules();
                 await post({ op: op, rules: state.rules, live: state.live, nightly: state.nightly });
@@ -385,15 +451,28 @@
     root.addEventListener('click', function (ev) {
         var b = ev.target.closest('button');
         if (!b || busy) return;
-        if (b.hasAttribute('data-device-inbox') || b.hasAttribute('data-device-preferences')) {
-            var deviceAction = b.hasAttribute('data-device-preferences') ? 'openPreferences' : 'openInbox';
+        if (b.hasAttribute('data-device-inbox')) {
+            var deviceAction = 'openInbox';
             try {
-                if (window.parent.CSDevice) { window.parent.CSDevice[deviceAction](); return; }
-            } catch (_) { }
-            if (window.CSDevice) { window.CSDevice[deviceAction](); return; }
-            var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = api + '&file=kimai-device.css&v=' + encodeURIComponent(boot.version); document.head.appendChild(css);
-            var script = document.createElement('script'); script.src = api + '&file=kimai-device.js&v=' + encodeURIComponent(boot.version);
-            script.onload = function () { window.CSDevice[deviceAction](); }; document.head.appendChild(script);
+                if (window.parent.CSDevice) {
+                    window.parent.CSDevice[deviceAction]();
+                    return;
+                }
+            } catch (_) {}
+            if (window.CSDevice) {
+                window.CSDevice[deviceAction]();
+                return;
+            }
+            var css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = api + '&file=kimai-device.css&v=' + encodeURIComponent(boot.version);
+            document.head.appendChild(css);
+            var script = document.createElement('script');
+            script.src = api + '&file=kimai-device.js&v=' + encodeURIComponent(boot.version);
+            script.onload = function () {
+                window.CSDevice[deviceAction]();
+            };
+            document.head.appendChild(script);
             return;
         }
         if (b.hasAttribute('data-add')) {
@@ -462,9 +541,19 @@
             field = target.name === 'customer' ? 'project' : 'activity';
         request(api + '&api=kimai-destinations&kind=' + kind + '&parent=' + encodeURIComponent(target.value))
             .then(function (rows) {
-                row.querySelector('[name=' + field + ']').outerHTML = select(field, rows, '', 'Select ' + field);
+                row.querySelector('[name=' + field + ']').outerHTML = select(
+                    field,
+                    rows,
+                    '',
+                    'Select ' + field,
+                );
                 if (field === 'project')
-                    row.querySelector('[name=activity]').outerHTML = select('activity', [], '', 'Select activity');
+                    row.querySelector('[name=activity]').outerHTML = select(
+                        'activity',
+                        [],
+                        '',
+                        'Select activity',
+                    );
             })
             .catch(function (e) {
                 message = e.message;

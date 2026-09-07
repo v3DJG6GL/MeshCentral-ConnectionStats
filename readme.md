@@ -152,8 +152,31 @@ is allowed only for an unchanged, unlocked entry owned by the integration.
 
 The side editor and disconnect review edit the same recording. Review is offered
 after your last connection ends, with personal **always / only issues / never**
-prompt preferences and drawer/modal presentation. These preferences do not enable
+prompt preferences and drawer/modal presentation, configured in Kimai settings.
+Each mapping rule can override the prompt or inherit the personal default. For a
+shared recording, the strictest contributing prompt wins (always, issues, never).
+These preferences do not enable
 live or nightly automation. Unresolved items remain in **Kimai → Review inbox**.
+The inbox supports **Approve**, **Discard**, and opening the editor; flagged entries
+require review in the editor. Approving, discarding or choosing **Review later**
+returns to the inbox. Confirmations appear inline instead of browser dialogs.
+
+Personal settings and mapping rules also offer a **minimum session length in
+seconds** (default 0, disabled). The threshold uses the full connected session
+length, including for active-time rules; equality is included. Rules can override
+or inherit the personal minimum. Short automatic recordings are durably excluded
+from Kimai without deleting statistics. Manual starts and existing remote entries
+are exempt. Open recordings snapshot their contributing rules; changing settings
+does not resurrect excluded time or retroactively rewrite existing reviews.
+
+Kimai can round an entry's end upward, overlapping a later session even when the
+original sessions were separate. Conflicts now show the existing entry ID and
+actual interval. **Start after existing entry** edits the draft start for explicit
+review, reducing the time to send. It never modifies the existing Kimai entry.
+Check Kimai's [time rounding settings](https://www.kimai.org/documentation/configurations.html#time-rounding)
+if rounding repeatedly recreates overlaps. Genuine overlap remains blocked to
+prevent duplicate billing; adjust the reviewed interval or correct it in Kimai.
+
 Drafts survive closing the editor. Concurrent changes require an explicit refresh
 before editing the newer revision; remote edits require keeping Kimai's version or
 explicitly reviewing a replacement.

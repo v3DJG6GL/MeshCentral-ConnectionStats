@@ -345,3 +345,17 @@
     margin: 10px 0;
     background: var(--kd-layer);
 }
+
+.cs-kd-confirm {
+    border: 2px solid var(--kd-focus);
+    background: var(--kd-layer);
+    padding: 12px;
+    margin: 12px 0;
+    border-radius: 4px;
+}
+.cs-kd-confirm h3 {
+    margin-top: 0;
+}
+.cs-kd-confirm button {
+    margin-top: 6px;
+}

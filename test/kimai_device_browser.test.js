@@ -23,12 +23,7 @@ function element() {
 }
 async function harness(overrides = {}, environment = {}) {
     const calls = [],
-        hosts = Object.fromEntries(
-            ['deskstatus', 'termstatus', 'p13Status'].map((id) => [
-                id,
-                element(),
-            ]),
-        );
+        hosts = Object.fromEntries(['deskstatus', 'termstatus', 'p13Status'].map((id) => [id, element()]));
     const initial = {
         csrf: 'csrf-sample',
         connected: true,
@@ -60,10 +55,16 @@ async function harness(overrides = {}, environment = {}) {
         domainUrl: '/tenant/',
         document: {
             hidden: false,
-            getElementById: (id) => hosts[id] || Object.values(hosts).flatMap((h) => h.children).find((c) => c.id === id),
+            getElementById: (id) =>
+                hosts[id] ||
+                Object.values(hosts)
+                    .flatMap((h) => h.children)
+                    .find((c) => c.id === id),
             createElement: element,
             querySelectorAll: (selector) =>
-                Object.values(hosts).flatMap((h) => h.children.flatMap((c) => c.children || [])).filter((c) => selector === '.' + c.className),
+                Object.values(hosts)
+                    .flatMap((h) => h.children.flatMap((c) => c.children || []))
+                    .filter((c) => selector === '.' + c.className),
         },
         window: {},
         fetch: async (url, options) => {
@@ -80,7 +81,7 @@ async function harness(overrides = {}, environment = {}) {
     vm.runInContext(
         source.replace(
             /window\.CSDevice\s*=\s*\{/,
-            'window.__test={duration,title,post,refresh,deviceSpans,deviceAllocations,setActive:function(a){active=a;}};window.CSDevice={',
+            'window.__test={duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
         ),
         context,
     );
@@ -173,12 +174,81 @@ test('quick stop selects only open contributors on the current device', async ()
 });
 
 test('mapped open sessions show pending review without claiming a running Kimai timer', async () => {
-    const h = await harness({sessions: [{nodeid: 'node/test', end: null, mapped: true, basis: 'connected'}]});
+    const h = await harness({
+        sessions: [{ nodeid: 'node/test', end: null, mapped: true, basis: 'connected' }],
+    });
     assert.match(h.hosts.deskstatus.children[0].children[0].textContent, /Mapped · review after disconnect/);
     h.initial.sessions[0].basis = 'active';
     await h.api.refresh(true);
-    assert.match(h.hosts.termstatus.children[0].children[0].textContent, /Active time · review after disconnect/);
+    assert.match(
+        h.hosts.termstatus.children[0].children[0].textContent,
+        /Active time · review after disconnect/,
+    );
     h.initial.sessions[0].end = Date.now();
     await h.api.refresh(true);
     assert.match(h.hosts.p13Status.children[0].children[0].textContent, /Start timer/);
+});
+test('per-allocation prompt override can enable review against a never global default', async () => {
+    const h = await harness({
+        preferences: { prompt: 'never' },
+        reviews: [{ id: 'r', revision: 1, prompt: 'always', review: true }],
+    });
+    const call = h.calls.find((c) => c.options && c.options.method === 'POST');
+    assert.ok(call);
+    assert.equal(JSON.parse(new URLSearchParams(call.options.body).get('data')).command, 'claim');
+});
+test('per-allocation never suppresses review against an always global default', async () => {
+    const h = await harness({
+        preferences: { prompt: 'always' },
+        reviews: [{ id: 'r', revision: 1, prompt: 'never', review: true }],
+    });
+    assert.equal(h.calls.filter((c) => c.options && c.options.method === 'POST').length, 0);
+});
+
+test('approval displays and sends effective draft timing and destinations', async () => {
+    const h = await harness();
+    const a = {
+        id: 'a',
+        revision: 3,
+        status: 'review',
+        begin: Date.UTC(2026, 8, 7, 8),
+        end: Date.UTC(2026, 8, 7, 9),
+        customer: 1,
+        project: 2,
+        activity: 3,
+        description: 'Original',
+        draft: {
+            project: 4,
+            description: 'Reviewed',
+            beginLocal: '2026-09-07T10:15:00',
+            endLocal: '2026-09-07T10:45:00',
+        },
+    };
+    assert.equal(h.api.canApprove(a), true);
+    const shown = h.api.approvalTiming(a),
+        sent = h.api.approvalValues(a);
+    assert.equal(shown.begin, sent.beginLocal);
+    assert.equal(shown.end, sent.endLocal);
+    assert.equal(sent.project, 4);
+    assert.equal(sent.description, 'Reviewed');
+    await h.api.post('save', { id: a.id, revision: a.revision, row: sent, mode: 'whole', reviewed: true });
+    const call = h.calls.find((c) => c.options && c.options.method === 'POST');
+    const data = JSON.parse(new URLSearchParams(call.options.body).get('data'));
+    assert.equal(data.row.beginLocal, shown.begin);
+    assert.equal(data.row.endLocal, shown.end);
+    assert.equal(data.revision, 3);
+});
+test('direct inbox approval rejects ongoing, uncertain and incomplete entries', async () => {
+    const h = await harness();
+    const a = { end: 100, status: 'review', customer: 1, project: 2, activity: 3 };
+    assert.equal(h.api.canApprove(a), true);
+    for (const patch of [
+        { end: null },
+        { error: 'Create outcome uncertain' },
+        { error: 'Edited remotely' },
+        { project: 0 },
+        { draft: { activity: 0 } },
+        { status: 'locked' },
+    ])
+        assert.equal(h.api.canApprove({ ...a, ...patch }), false);
 });

@@ -322,3 +322,28 @@ test('duration rendering preserves seconds and never wraps hours at midnight', (
         [null, '0:00:00'], [NaN, '0:00:00'], [Infinity, '0:00:00']
     ]) assert.equal(format(seconds), expected);
 });
+
+
+test('standalone/PWA Kimai follows MeshCentral saved theme and system changes without a parent', () => {
+    let applied, saved = '1';
+    const handlers = {}, media = { matches: false, addEventListener: (_, fn) => { handlers.media = fn; } };
+    const window = { CS_BOOT: { view: 'kimai', night: false }, matchMedia: () => media, addEventListener: (name, fn) => { handlers[name] = fn; } };
+    window.parent = window;
+    vm.runInNewContext(source, { window, localStorage: { getItem: () => saved }, document: { documentElement: { classList: { toggle: (_, on) => { applied = on; } } } } });
+    assert.equal(applied, true, 'saved dark survives default false boot flag');
+    saved = '2'; media.matches = true; handlers.storage({ key: 'nightMode' });
+    assert.equal(applied, false, 'explicit light overrides dark system theme');
+    saved = '0'; handlers.storage({ key: 'nightMode' }); assert.equal(applied, true);
+    media.matches = false; handlers.media(); assert.equal(applied, false);
+    saved = null; media.matches = true; handlers.storage({ key: null }); assert.equal(applied, true);
+});
+
+test('standalone launch hint preserves host theme even when storage is unavailable or disagrees', () => {
+    for (const night of [true, false]) {
+        let applied;
+        const window = { CS_BOOT: { view: 'kimai', night, nightExplicit: true }, matchMedia: () => ({ matches: !night }), addEventListener() {} };
+        window.parent = window;
+        vm.runInNewContext(source, { window, localStorage: { getItem: () => { throw Error('Unavailable'); } }, document: { documentElement: { classList: { toggle: (_, on) => { applied = on; } } } } });
+        assert.equal(applied, night);
+    }
+});

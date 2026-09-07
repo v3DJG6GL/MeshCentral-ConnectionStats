@@ -423,3 +423,63 @@ test('Kimai POST endpoint requires an unguessable per-user request token', () =>
     assert.equal(status, 403);
     assert.equal(called, 0);
 });
+
+test('minimum session length uses connected duration, with per-rule override and validation', () => {
+    const short = doc('short', 0, 0.1, {active: 1});
+    assert.equal(build([short], [rule], 'UTC', 10).length, 0);
+    assert.equal(build([short], [{...rule, minSeconds: 0}], 'UTC', 10).length, 1);
+    assert.equal(build([short], [{...rule, minSeconds: 6}], 'UTC').length, 1);
+    assert.equal(build([short], [{...rule, basis: 'active', minSeconds: 6}], 'UTC')[0].seconds, 1);
+    assert.equal(rules([{...rule, prompt:'never', minSeconds:'15'}])[0].minSeconds, 15);
+    assert.equal(rules([rule])[0].prompt, 'inherit');
+    assert.throws(() => rules([{...rule, minSeconds:-1}]), /Minimum/);
+    assert.throws(() => rules([{...rule, prompt:'invalid'}]), /preference/);
+});
+test('remote overlap identifies rounded boundaries and explicit adjusted retry succeeds', async () => {
+    const f = fixture([doc('a', 0, 1), doc('b', 1.5, 3)]);
+    await f.connected();
+    const s = await f.service.state(f.user), blocks = build(f.docs, [rule], 'UTC');
+    const request = f.c.request;
+    f.c.request = async (...args) => {
+        const result = await request(...args);
+        if (args[0] === 'POST' && result.id === 1) {
+            result.end = '2026-01-05T10:02:00+0000';
+            result.duration = 120;
+            Object.assign(f.remotes[0], result);
+        }
+        return result;
+    };
+    await f.service.sync(f.user, s, f.c, blocks[0]);
+    await f.service.sync(f.user, s, f.c, blocks[1]);
+    const l = s.ledger[blocks[1].id];
+    assert.equal(l.overlap.remoteId, 1);
+    assert.equal(l.overlap.roundedOnly, true);
+    assert.equal(l.overlap.seconds, 30);
+    assert.match(l.error, /Kimai rounding/);
+    assert.equal(f.remotes.length, 1);
+    await f.service.sync(f.user, s, f.c, {...blocks[1], begin: base + 120000});
+    assert.equal(l.status, 'synced');
+    assert.equal(l.overlap, undefined);
+    assert.equal(f.remotes.length, 2);
+});
+
+test('rule-specific policy settings adopt device workflow before automation can ignore them', async () => {
+    const f = fixture();
+    await f.connected();
+    await f.service.action(f.user, {op:'settings', rules:[{...rule,prompt:'always',minSeconds:10}], live:true, nightly:false});
+    const s = await f.service.state(f.user);
+    assert.ok(s.device);
+    assert.equal(s.rules[0].prompt, 'always');
+    assert.equal((await f.service.info(f.user)).recordingPreferences.minSeconds, 0);
+});
+test('preview minimum checks source length before subtracting already-reserved fragments', async () => {
+    const f = fixture([doc('a', 0, 2), doc('short', 5, 5.1)]);
+    await f.connected();
+    const s = await f.service.state(f.user);
+    s.rules = [{...rule, minSeconds:60}];
+    s.device = {since:base, preferences:{prompt:'always',presentation:'drawer',minSeconds:0},suppressed:{},operations:{}};
+    s.allocations = {reserved:{id:'reserved',source:['a'],spans:[{sessionId:'a',begin:base,end:base+90000}],begin:base,end:base+90000,status:'excluded'}};
+    const p = await f.service.preview(f.user, s, {start:base,end:base+3600000});
+    assert.equal(p.rows.length, 1);
+    assert.equal(p.rows[0].seconds, 30);
+});

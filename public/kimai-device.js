@@ -22,6 +22,54 @@
         presented = new Set(),
         dismissed = new Set();
     var types = { desktop: 'Desktop', terminal: 'Terminal', files: 'Files' };
+    var confirmation = null;
+    function inlineConfirm(heading, text, action) {
+        if (confirmation) return Promise.resolve(false);
+        if (!panel || panel.hidden) shell('Kimai recording');
+        var before = document.activeElement,
+            box = document.createElement('section');
+        box.className = 'cs-kd-confirm';
+        box.setAttribute('role', 'region');
+        box.setAttribute('aria-labelledby', 'cs-kd-confirm-title');
+        box.innerHTML =
+            '<h3 id="cs-kd-confirm-title">' +
+            esc(heading) +
+            '</h3><p>' +
+            esc(text) +
+            '</p><div><button type="button" data-confirm-cancel>Go back</button> <button type="button" class="cs-kd-primary" data-confirm-accept>' +
+            esc(action) +
+            '</button></div>';
+        panel.querySelector('.cs-kd-content').prepend(box);
+        return new Promise(function (resolve) {
+            function finish(value) {
+                box.remove();
+                confirmation = null;
+                setBusy();
+                if (before && before.isConnected) before.focus();
+                resolve(value);
+            }
+            confirmation = {
+                cancel: function () {
+                    finish(false);
+                },
+            };
+            setBusy();
+            box.querySelector('[data-confirm-cancel]').onclick = function () {
+                finish(false);
+            };
+            box.querySelector('[data-confirm-accept]').onclick = function () {
+                finish(true);
+            };
+            box.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    finish(false);
+                }
+            });
+            box.querySelector('[data-confirm-cancel]').focus();
+        });
+    }
     function esc(v) {
         return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -35,6 +83,21 @@
             String(Math.floor(s / 60) % 60).padStart(2, '0') +
             ':' +
             String(s % 60).padStart(2, '0')
+        );
+    }
+    function settingsUrl() {
+        var dark =
+            (document.body && document.body.classList.contains('night')) ||
+            (document.documentElement && document.documentElement.classList.contains('night'));
+        return api + '&view=kimai&night=' + (dark ? '1' : '0');
+    }
+    function canStartAfter(a) {
+        return !!(
+            a &&
+            a.overlap &&
+            Number.isFinite(a.overlap.end) &&
+            a.overlap.end > a.begin &&
+            a.overlap.end < a.end
         );
     }
     function local(ms) {
@@ -134,7 +197,7 @@
     function setBusy() {
         if (panel)
             panel.querySelectorAll('button[data-mutation]').forEach(function (b) {
-                b.disabled = !!busy;
+                b.disabled = !!busy || !!confirmation || (b.dataset && b.dataset.unavailable === 'true');
             });
     }
     function cancelDraft() {
@@ -165,6 +228,7 @@
             });
     }
     async function closePanel() {
+        if (confirmation) confirmation.cancel();
         if (draftTimer || draftUnsaved) {
             try {
                 await saveDraft();
@@ -176,6 +240,7 @@
         if (panel) panel.hidden = true;
     }
     function shell(heading, modal) {
+        if (confirmation) confirmation.cancel();
         formGeneration++;
         cancelDraft();
         draftUnsaved = false;
@@ -193,8 +258,10 @@
             esc(heading) +
             '</h2><button type="button" data-close aria-label="Close Kimai panel">×</button></header><nav><button type="button" data-view="device">This device</button><button type="button" data-view="inbox">Review inbox (' +
             esc((state.reviews || []).length) +
-            ')</button><button type="button" data-view="preferences">Preferences</button></nav><p class="cs-kd-message" role="status" aria-live="polite"></p><div class="cs-kd-content"></div>';
-        panel.querySelector('[data-close]').onclick = deferAndClose;
+            ')</button></nav><p class="cs-kd-message" role="status" aria-live="polite"></p><div class="cs-kd-content"></div>';
+        panel.querySelector('[data-close]').onclick = function () {
+            deferAndClose(false);
+        };
         panel.querySelectorAll('[data-view]').forEach(function (b) {
             b.onclick = async function () {
                 if (draftTimer || draftUnsaved) {
@@ -205,7 +272,6 @@
                     }
                 }
                 if (b.dataset.view === 'inbox') showInbox();
-                else if (b.dataset.view === 'preferences') showPreferences();
                 else openDevice();
             };
         });
@@ -216,7 +282,7 @@
                 dialog.setAttribute('aria-labelledby', 'cs-kd-heading');
                 dialog.addEventListener('cancel', function (e) {
                     e.preventDefault();
-                    deferAndClose();
+                    deferAndClose(false);
                 });
                 document.body.append(dialog);
             }
@@ -225,14 +291,16 @@
         }
         setBusy();
     }
-    function deferAndClose() {
+    function deferAndClose(returnToInbox) {
         if (active && active.review) {
             var id = active.id;
             saveDraft()
                 .then(function () {
                     return post('defer', { id: id });
                 })
-                .then(closePanel)
+                .then(function () {
+                    return returnToInbox ? showInbox() : closePanel();
+                })
                 .catch(function (e) {
                     message(e.message, true);
                 });
@@ -326,7 +394,7 @@
         if (!state.connected) {
             content(
                 '<p>Connect your personal Kimai account before recording time.</p><a href="' +
-                    esc(api + '&view=kimai') +
+                    esc(settingsUrl()) +
                     '">Open Kimai settings</a>',
             );
             return;
@@ -346,6 +414,27 @@
                     : 'Choose a destination for this recording. No mapping rule is required.') +
                 '</p>' +
                 (a && a.error ? '<p class="cs-kd-warning">' + esc(a.error) + '</p>' : '') +
+                (a && /overlap/i.test(a.error || '')
+                    ? '<p>Adjust the start/end below, or review the existing entry in Kimai. Overlapping billing is not approved automatically.</p>'
+                    : '') +
+                (a && a.overlap
+                    ? '<p>Kimai entry #' +
+                      esc(a.overlap.remoteId) +
+                      ': ' +
+                      esc(local(a.overlap.begin)) +
+                      ' to ' +
+                      esc(a.overlap.end ? local(a.overlap.end) : 'still running') +
+                      '; overlap ' +
+                      duration(a.overlap.seconds) +
+                      '.' +
+                      (a.overlap.roundedOnly
+                          ? ' Kimai rounding extended the existing entry. Review the reduced duration before approving.'
+                          : '') +
+                      '</p>' +
+                      (canStartAfter(a)
+                          ? '<button type="button" data-start-after>Start after existing entry</button>'
+                          : '')
+                    : '') +
                 (a && a.remoteStartReason ? '<p><small>' + esc(a.remoteStartReason) + '</small></p>' : '') +
                 '<form data-recording><fieldset ' +
                 (!a && !sessions.length ? 'disabled' : '') +
@@ -446,9 +535,21 @@
                 }, 700);
             }
         });
+        var after = panel.querySelector('[data-start-after]');
+        if (after)
+            after.onclick = function () {
+                form.elements.beginLocal.value = local(a.overlap.end);
+                draftUnsaved = true;
+                message(
+                    'Start adjusted in your draft. Proposed duration: ' +
+                        duration((a.end - a.overlap.end) / 1000) +
+                        '. Review the reduced time, then approve; nothing has been sent.',
+                );
+                form.elements.beginLocal.focus();
+            };
         form.onsubmit = async function (e) {
             e.preventDefault();
-            if (busy) return;
+            if (busy || confirmation) return;
             cancelDraft();
             var row = readRow();
             try {
@@ -462,15 +563,18 @@
                     var mode = ongoing(a) ? form.elements.mode.value : 'whole';
                     if (
                         mode === 'whole' &&
-                        !window.confirm(
-                            'Apply these values to the entire displayed recording? Existing Kimai edits and locks will be checked.',
-                        )
+                        !(await inlineConfirm(
+                            'Apply to the entire recording?',
+                            'Existing Kimai edits and locks will be checked.',
+                            'Apply reviewed values',
+                        ))
                     )
                         return;
                     await post('save', { id: a.id, row: row, mode: mode, reviewed: true });
                 }
                 draftUnsaved = false;
-                await openDevice();
+                if (a && !ongoing(a)) await showInbox();
+                else await openDevice();
                 message('Saved. Check the recording status above.');
             } catch (err) {
                 message(err.message, true);
@@ -493,14 +597,18 @@
             retry.onclick = async function () {
                 if (
                     busy ||
-                    !window.confirm('I checked Kimai and no entry exists. Retry creating this recording?')
+                    !(await inlineConfirm(
+                        'Retry creating this recording?',
+                        'Continue only after checking Kimai and confirming no entry exists.',
+                        'I checked; retry creation',
+                    ))
                 )
                     return;
                 try {
                     cancelDraft();
                     await post('resolve', { id: a.id, choice: 'retry', row: readRow(), reviewed: true });
                     draftUnsaved = false;
-                    await openDevice();
+                    await showInbox();
                     message('Retry requested. Check the synchronization result.');
                 } catch (e) {
                     message(e.message, true);
@@ -516,12 +624,12 @@
                 button.textContent =
                     choice === 'keep' ? 'Keep Kimai version' : 'Replace with reviewed values';
                 button.onclick = async function () {
-                    if (busy) return;
+                    if (busy || confirmation) return;
                     try {
                         cancelDraft();
                         await post('resolve', { id: a.id, choice: choice, row: readRow(), reviewed: true });
                         draftUnsaved = false;
-                        await openDevice();
+                        await showInbox();
                         message(
                             choice === 'keep'
                                 ? 'Kimai version kept.'
@@ -535,7 +643,10 @@
             });
         }
         var defer = panel.querySelector('[data-defer]');
-        if (defer) defer.onclick = deferAndClose;
+        if (defer)
+            defer.onclick = function () {
+                deferAndClose(true);
+            };
         panel.querySelectorAll('[data-detach]').forEach(function (b) {
             b.onclick = function () {
                 stop(a, [b.dataset.detach]);
@@ -595,15 +706,17 @@
         setBusy();
     }
     async function stop(a, ids) {
-        if (busy) return;
+        if (busy || confirmation) return;
         if (
             !ids &&
             (a.source || []).length > 1 &&
-            !window.confirm(
-                'Stop tracking all ' +
+            !(await inlineConfirm(
+                'Stop all contributors?',
+                'This stops tracking all ' +
                     a.source.length +
-                    ' contributing connections? Remote access remains connected.',
-            )
+                    ' contributing connections. Remote access remains connected.',
+                'Stop & keep time',
+            ))
         )
             return;
         try {
@@ -617,20 +730,20 @@
         }
     }
     async function exclude(a) {
-        if (busy) return;
+        if (busy || confirmation) return;
         if (
-            !window.confirm(
-                'Discard ' +
-                    duration(a.seconds) +
-                    ' for this entire recording, including all contributors? Connection history is retained. An owned Kimai entry can only be removed if unchanged and unlocked.',
-            )
+            !(await inlineConfirm(
+                'Discard ' + duration(a.seconds) + '?',
+                'This excludes the entire recording and all contributors. Connection history is retained. An owned Kimai entry can only be removed if unchanged and unlocked.',
+                'Discard recording',
+            ))
         )
             return;
         try {
             cancelDraft();
-            await post('exclude', { id: a.id, confirmed: true });
+            await post('exclude', { id: a.id, revision: a.revision, confirmed: true });
             draftUnsaved = false;
-            await openDevice();
+            await showInbox();
             message('Exclusion requested. Check the status for remote removal errors.');
         } catch (e) {
             message(e.message, true);
@@ -653,7 +766,7 @@
             box.hidden = true;
         };
         box.querySelector('[data-create-save]').onclick = async function () {
-            if (busy) return;
+            if (busy || confirmation) return;
             var name = box.querySelector('input').value.trim();
             if (!name) {
                 message('Enter a name.', true);
@@ -688,6 +801,37 @@
             });
         return editor(a);
     }
+    function effectiveRow(a) {
+        return Object.assign({}, a, a.draft || {});
+    }
+    function canApprove(a) {
+        var row = effectiveRow(a);
+        return (
+            !ongoing(a) &&
+            !a.error &&
+            !['locked', 'excluded', 'conflict', 'attention', 'creating'].includes(a.status) &&
+            Number(row.customer) > 0 &&
+            Number(row.project) > 0 &&
+            Number(row.activity) > 0
+        );
+    }
+    function approvalValues(a) {
+        var row = effectiveRow(a);
+        return {
+            customer: row.customer,
+            project: row.project,
+            activity: row.activity,
+            description: row.description,
+            tags: row.tags,
+            billable: row.billable,
+            beginLocal: row.beginLocal,
+            endLocal: row.endLocal,
+        };
+    }
+    function approvalTiming(a) {
+        var row = effectiveRow(a);
+        return { begin: row.beginLocal || local(a.begin), end: row.endLocal || local(a.end) };
+    }
     async function showInbox() {
         if (draftTimer || draftUnsaved) {
             try {
@@ -698,75 +842,137 @@
         }
         active = null;
         shell('Review inbox');
+        var generation = formGeneration,
+            shown = (state.reviews || []).slice(),
+            names = {};
+        message('Loading destination names…');
+        try {
+            var values = await Promise.all(
+                ['customers', 'projects', 'activities'].map(function (k) {
+                    return destinations(k);
+                }),
+            );
+            ['customers', 'projects', 'activities'].forEach(function (k, i) {
+                names[k] = values[i];
+            });
+        } catch (e) {
+            message('Destination names unavailable: ' + e.message, true);
+        }
+        if (generation !== formGeneration) return;
+        function name(kind, id) {
+            var value = (names[kind] || []).find(function (x) {
+                return String(x.id) === String(id);
+            });
+            return value ? value.name : id ? 'Unavailable #' + id : 'Not selected';
+        }
         content(
-            '<p>Deferred recordings remain here. Reviewing never extends their time.</p>' +
-                (state.reviews || [])
+            '<p>Review the destination, description and effective start/end before approving. Times use ' +
+                esc(state.timezone || 'UTC') +
+                '.</p>' +
+                shown
                     .map(function (a) {
+                        var row = effectiveRow(a),
+                            times = approvalTiming(a);
                         return (
                             '<article><h3>' +
                             esc(
                                 (a.spans || [])
-                                    .map(function (s) {
-                                        return s.name;
+                                    .map(function (x) {
+                                        return x.name;
                                     })
                                     .filter(Boolean)
                                     .join(', ') || 'Recording',
                             ) +
                             '</h3><p>' +
-                            esc(local(a.begin).replace('T', ' ')) +
-                            ' · ' +
+                            esc(times.begin.replace('T', ' ')) +
+                            ' to ' +
+                            esc(times.end.replace('T', ' ')) +
+                            '<br>Source duration ' +
                             duration(a.seconds) +
                             '<br>' +
+                            esc(name('customers', row.customer)) +
+                            ' / ' +
+                            esc(name('projects', row.project)) +
+                            ' / ' +
+                            esc(name('activities', row.activity)) +
+                            '<br>' +
+                            esc(row.description || 'No description') +
+                            '<br>' +
                             esc(title(a)) +
-                            '</p><button type="button" data-review="' +
+                            '</p>' +
+                            (a.error ? '<p class="cs-kd-warning">' + esc(a.error) + '</p>' : '') +
+                            (!canApprove(a)
+                                ? '<p><small>Open Review to resolve missing details or synchronization issues before approving.</small></p>'
+                                : '') +
+                            '<button type="button" data-review="' +
                             esc(a.id) +
-                            '">Review recording</button></article>'
+                            '">Review recording</button> <button type="button" data-mutation data-approve="' +
+                            esc(a.id) +
+                            '"' +
+                            (!canApprove(a) ? ' disabled data-unavailable="true"' : '') +
+                            '>Approve</button> <button type="button" class="cs-kd-danger" data-mutation data-inbox-discard="' +
+                            esc(a.id) +
+                            '">Discard…</button></article>'
                         );
                     })
                     .join('') +
-                (!(state.reviews || []).length ? '<p>No recordings need review.</p>' : '') +
+                (!shown.length ? '<p>No recordings need review.</p>' : '') +
                 '<a href="' +
-                esc(api + '&view=kimai') +
+                esc(settingsUrl()) +
                 '">Kimai settings and sync history</a>',
         );
+        if (names.customers) message('');
+        panel.querySelectorAll('[data-approve]').forEach(function (b) {
+            b.onclick = async function () {
+                if (busy || confirmation) return;
+                var a = shown.find(function (x) {
+                    return x.id === b.dataset.approve;
+                });
+                if (!a || !canApprove(a)) return;
+                if (!latest(a.id) || latest(a.id).revision !== a.revision) {
+                    await showInbox();
+                    message('Recording changed. Review the refreshed values before approving.', true);
+                    return;
+                }
+                if (
+                    !(await inlineConfirm(
+                        'Approve this recording?',
+                        'Send the displayed effective start/end, destination and description. Existing Kimai edits and locks will be checked.',
+                        'Approve recording',
+                    ))
+                )
+                    return;
+                try {
+                    await post('save', {
+                        id: a.id,
+                        revision: a.revision,
+                        row: approvalValues(a),
+                        mode: 'whole',
+                        reviewed: true,
+                    });
+                    await showInbox();
+                    message(
+                        'Approval submitted. Any synchronization error remains visible beside its recording.',
+                    );
+                } catch (e) {
+                    message(e.message, true);
+                }
+            };
+        });
+        panel.querySelectorAll('[data-inbox-discard]').forEach(function (b) {
+            b.onclick = function () {
+                var a = shown.find(function (x) {
+                    return x.id === b.dataset.inboxDiscard;
+                });
+                if (a) exclude(a);
+            };
+        });
         panel.querySelectorAll('[data-review]').forEach(function (b) {
             b.onclick = function () {
                 editor(latest(b.dataset.review));
             };
         });
-    }
-    async function showPreferences() {
-        if (draftTimer || draftUnsaved) {
-            try {
-                await saveDraft();
-            } catch (_) {
-                return;
-            }
-        }
-        active = null;
-        shell('My recording preferences — all devices');
-        var prefs = state.preferences || {};
-        content(
-            '<p>These personal settings apply to all your devices and mapping rules.</p><form data-preferences><label>After a recording ends<select name="prompt"><option value="always">Always open review</option><option value="issues">Only when attention is needed</option><option value="never">Never open automatically</option></select></label><label>Presentation<select name="presentation"><option value="drawer">Side panel</option><option value="dialog">Centered dialog</option></select></label><p>Reviews wait in your inbox while another connection is active. Disabling prompts never discards work or enables automatic billing.</p><button class="cs-kd-primary" data-mutation>Save preferences</button></form><p><a href="' +
-                esc(api + '&view=kimai') +
-                '">Manage rules, token and automation</a></p>',
-        );
-        var f = panel.querySelector('form');
-        f.elements.prompt.value = prefs.prompt || 'always';
-        f.elements.presentation.value = prefs.presentation || 'drawer';
-        f.onsubmit = async function (e) {
-            e.preventDefault();
-            if (busy) return;
-            try {
-                await post('preferences', {
-                    prompt: f.elements.prompt.value,
-                    presentation: f.elements.presentation.value,
-                });
-                message('Preferences saved');
-            } catch (err) {
-                message(err.message, true);
-            }
-        };
+        setBusy();
     }
     function deviceAllocations() {
         var id = currentNodeId();
@@ -823,11 +1029,15 @@
                 (!state.connected
                     ? 'Connect account'
                     : a
-                      ? (a.status === 'recording-local' ? 'Recording locally' : 'Recording in Kimai') + ' ' + duration(a.seconds)
+                      ? (a.status === 'recording-local' ? 'Recording locally' : 'Recording in Kimai') +
+                        ' ' +
+                        duration(a.seconds)
                       : mapped.length
-                        ? (mapped.some(function (x) { return x.basis === 'active'; })
+                        ? mapped.some(function (x) {
+                              return x.basis === 'active';
+                          })
                             ? 'Active time · review after disconnect'
-                            : 'Mapped · review after disconnect')
+                            : 'Mapped · review after disconnect'
                         : 'Start timer') +
                 (count ? ' · ' + count + ' to review' : '');
             b.title = 'Open personal Kimai controls';
@@ -835,7 +1045,7 @@
         document.querySelectorAll('.cs-kd-quick-stop').forEach(function (b) {
             var ids = a ? deviceSpans(a, currentNodeId()) : [];
             b.hidden = !ids.length;
-            b.disabled = !!busy;
+            b.disabled = !!busy || !!confirmation || (b.dataset && b.dataset.unavailable === 'true');
             b.textContent = a && (a.source || []).length > 1 ? 'Stop tracking this device' : 'Stop & keep';
             b.title = 'Stop only this device’s contributions; remote access and other devices keep running.';
             b.onclick = function () {
@@ -887,12 +1097,13 @@
         )
             return;
         var prefs = state.preferences || {};
-        if (prefs.prompt === 'never') return;
         var a = (state.reviews || []).find(function (x) {
+            var prompt = x.prompt || prefs.prompt || 'always';
             return (
+                prompt !== 'never' &&
                 !presented.has(x.id + ':' + x.revision) &&
                 !dismissed.has(x.id) &&
-                (prefs.prompt !== 'issues' || x.error || x.status === 'conflict' || !x.project || !x.activity)
+                (prompt !== 'issues' || x.error || x.status === 'conflict' || !x.project || !x.activity)
             );
         });
         if (!a) return;
@@ -937,10 +1148,6 @@
         }
     }
     window.CSDevice = {
-        openPreferences: async function () {
-            await refresh(true);
-            if (state) return showPreferences();
-        },
         refresh: function () {
             return refresh(false);
         },

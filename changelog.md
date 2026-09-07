@@ -1,3 +1,17 @@
+## 0.4.2 — 2026-09-08
+
+- Move personal recording preferences into Kimai settings. Add per-rule review
+  prompt overrides and minimum connected-session duration, inheriting personal
+  defaults. Exclude short automatic recordings durably without deleting statistics.
+- Replace browser confirmations with inline review actions. Add inbox Approve and
+  Discard, show effective draft values and errors, and return to the inbox after
+  review decisions. Flagged entries still require the editor.
+- Explain remote overlap conflicts with the existing entry, timestamps and overlap
+  seconds. Identify verified rounding-only conflicts and offer an explicit start
+  adjustment; never trim or bill overlapping time automatically.
+- Preserve dark/light theme when settings open in a standalone PWA window, using
+  the launch theme or MeshCentral's saved/system preference.
+
 ## 0.4.1 — 2026-09-08
 
 - Place Kimai controls beside connection status consistently in Desktop, Terminal

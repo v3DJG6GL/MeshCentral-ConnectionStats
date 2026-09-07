@@ -42,7 +42,11 @@ function rules(input) {
     return input.map((r, i) => {
         if (!Number.isInteger(+r.project) || +r.project <= 0 || !Number.isInteger(+r.activity) || +r.activity <= 0)
             throw Error('Select a project and activity for every rule');
+        if (r.prompt != null && !['inherit', 'always', 'issues', 'never'].includes(r.prompt)) throw Error('Invalid rule review preference');
+        if (r.minSeconds != null && r.minSeconds !== '' && (!Number.isInteger(+r.minSeconds) || +r.minSeconds < 0 || +r.minSeconds > 86400)) throw Error('Minimum session length must be 0–86400 seconds');
         return {
+            prompt: r.prompt || 'inherit',
+            minSeconds: r.minSeconds == null || r.minSeconds === '' ? null : +r.minSeconds,
             id: String(r.id || crypto.randomUUID()),
             group: String(r.group || ''),
             device: String(r.device || ''),
@@ -65,13 +69,13 @@ function match(s, rs) {
             (!r.type || r.type === s.type),
     );
 }
-function build(sessions, rs, tz) {
+function build(sessions, rs, tz, defaultMinSeconds = 0) {
     const blocks = [];
     sessions
         .filter((s) => !s.guest && s.end != null)
         .forEach((s) => {
             const r = match(s, rs);
-            if (!r) return;
+            if (!r || (s.end - s.start) / 1000 < (r.minSeconds ?? defaultMinSeconds)) return;
             let issue = '',
                 end = s.end;
             if (r.basis === 'active') {
@@ -444,6 +448,7 @@ class Service {
             timezone: s.tz,
             automationError: s.automationError || null,
             account: s.account,
+            recordingPreferences: s.device?.preferences || { prompt: 'always', presentation: 'drawer', minSeconds: 0 },
             rules: s.rules,
             live: s.live,
             nightly: s.nightly,
@@ -478,7 +483,8 @@ class Service {
         if (query.endLocal) query.end = epoch(query.endLocal, s.tz);
         const docs = await this.sessions(user, query);
         if (docs.length > 20000) throw Error('More than 20000 sessions; select a shorter preview range');
-        const rows = build(s.device ? require('./kimai-device').available(s, docs) : docs, s.rules, s.tz);
+        const eligible = docs.filter((d) => d.end != null && (d.end - d.start) / 1000 >= (match(d, s.rules)?.minSeconds ?? s.device?.preferences?.minSeconds ?? 0));
+        const rows = build(s.device ? require('./kimai-device').available(s, eligible) : eligible, s.rules.map((r) => ({ ...r, minSeconds: 0 })), s.tz);
         if (rows.length > 2000) throw Error('More than 2000 entries; select a shorter preview range');
         for (const b of rows) {
             const exact = s.ledger[b.id];
@@ -603,6 +609,7 @@ class Service {
                 s.live = input.live === true;
                 s.nightly = input.nightly === true;
                 if ((s.live || s.nightly) && !s.token) throw Error('Connect first');
+                if (s.rules.some((r) => r.prompt !== 'inherit' || r.minSeconds != null)) require('./kimai-device').init(s);
                 await this.save(user, s);
                 if (this.timer) this.kick();
                 return { ok: true };
@@ -826,15 +833,25 @@ class Service {
             }
             {
                 const others = await c.list('/timesheets');
-                if (
-                    others.some((r) => {
-                        if (r.id === l.remoteId) return false;
-                        const begin = Date.parse(r.begin),
-                            end = r.end ? Date.parse(r.end) : Infinity;
-                        return begin < (block.end || Infinity) && block.begin < end;
-                    })
-                )
-                    throw Error('Existing Kimai time overlaps this entry; review required');
+                delete l.overlap;
+                const conflict = others.find((r) => {
+                    if (r.id === l.remoteId) return false;
+                    const begin = Date.parse(r.begin), end = r.end ? Date.parse(r.end) : Infinity;
+                    return begin < (block.end ?? Infinity) && block.begin < end;
+                });
+                if (conflict) {
+                    const begin = Date.parse(conflict.begin), end = conflict.end ? Date.parse(conflict.end) : null;
+                    const owned = Object.values(s.ledger).find((x) => x.remoteId === conflict.id && x.last && hash(snapshot(conflict)) === hash(x.last));
+                    const roundedOnly = !!(owned && owned.end != null && owned.begin != null &&
+                        !(owned.begin < (block.end ?? Infinity) && block.begin < owned.end));
+                    const seconds = Math.max(0, (Math.min(end ?? Date.now(), block.end ?? Date.now()) - Math.max(begin, block.begin)) / 1000);
+                    l.overlap = { remoteId: conflict.id, begin, end, seconds, roundedOnly };
+                    throw Error('Existing Kimai time overlaps this entry: #' + conflict.id + ' (' +
+                        wall(begin, s.tz) + ' – ' + (end == null ? 'running' : wall(end, s.tz)) +
+                        ', ' + seconds + ' seconds overlap). ' +
+                        (roundedOnly ? 'Kimai rounding extended an otherwise separate recording. ' : '') +
+                        'Adjust this recording’s start/end or correct the existing entry in Kimai; overlapping time is not sent automatically.');
+                }
                 if (!l.remoteId) {
                     l.status = 'creating';
                     l.attempted = true;
@@ -1069,7 +1086,7 @@ class Service {
                             ((s.live && d.start >= (s.liveSince || s.enabledAt)) ||
                                 (s.nightly && p.h >= 2 && d.end <= today)),
                     );
-                    for (const b of build(completed, s.rules, s.tz)) {
+                    for (const b of build(completed, s.rules, s.tz, s.device?.preferences?.minSeconds || 0)) {
                         if (b.issue) {
                             s.ledger[b.id] = { ...b, status: 'conflict', error: b.issue, updated: now };
                             await this.save(user, s);
