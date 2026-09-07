@@ -1,3 +1,9 @@
+## 0.4.4 — 2026-09-08
+
+- Keep inline confirmations beside the triggering Save, Discard or review action,
+  including within the relevant inbox item. Reveal only the nearby confirmation
+  and restore focus to the original action on cancellation.
+
 ## 0.4.3 — 2026-09-08
 
 - Do not create Kimai recording reviews for unmatched sessions after disconnect.

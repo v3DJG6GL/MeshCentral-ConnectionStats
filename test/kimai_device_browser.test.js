@@ -81,7 +81,7 @@ async function harness(overrides = {}, environment = {}) {
     vm.runInContext(
         source.replace(
             /window\.CSDevice\s*=\s*\{/,
-            'window.__test={duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
+            'window.__test={placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
         ),
         context,
     );
@@ -251,4 +251,23 @@ test('direct inbox approval rejects ongoing, uncertain and incomplete entries', 
         { status: 'locked' },
     ])
         assert.equal(h.api.canApprove({ ...a, ...patch }), false);
+});
+
+test('confirmations stay beside the triggering action in editor and inbox', async () => {
+    const h = await harness();
+    const calls = [],
+        box = {};
+    const content = { contains: (x) => !!x, append: (x) => calls.push(['fallback', x]) };
+    h.api.setPanel({ querySelector: () => content });
+    const footer = { insertAdjacentElement: (where, x) => calls.push(['footer', where, x]) };
+    h.api.placeConfirmation(box, { closest: (selector) => (selector === 'footer' ? footer : null) });
+    assert.deepEqual(calls.pop(), ['footer', 'afterend', box]);
+    const article = { append: (x) => calls.push(['article', x]) };
+    h.api.placeConfirmation(box, { closest: (selector) => (selector === 'article' ? article : null) });
+    assert.deepEqual(calls.pop(), ['article', box]);
+    h.api.placeConfirmation(box, {
+        closest: () => null,
+        insertAdjacentElement: (where, x) => calls.push(['button', where, x]),
+    });
+    assert.deepEqual(calls.pop(), ['button', 'afterend', box]);
 });

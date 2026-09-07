@@ -23,10 +23,20 @@
         dismissed = new Set();
     var types = { desktop: 'Desktop', terminal: 'Terminal', files: 'Files' };
     var confirmation = null;
-    function inlineConfirm(heading, text, action) {
+    function placeConfirmation(box, trigger) {
+        var content = panel.querySelector('.cs-kd-content');
+        if (trigger && content.contains(trigger)) {
+            var footer = trigger.closest('footer');
+            var article = trigger.closest('article');
+            if (footer) footer.insertAdjacentElement('afterend', box);
+            else if (article) article.append(box);
+            else trigger.insertAdjacentElement('afterend', box);
+        } else content.append(box);
+    }
+    function inlineConfirm(heading, text, action, trigger) {
         if (confirmation) return Promise.resolve(false);
         if (!panel || panel.hidden) shell('Kimai recording');
-        var before = document.activeElement,
+        var before = trigger || document.activeElement,
             box = document.createElement('section');
         box.className = 'cs-kd-confirm';
         box.setAttribute('role', 'region');
@@ -39,7 +49,7 @@
             '</p><div><button type="button" data-confirm-cancel>Go back</button> <button type="button" class="cs-kd-primary" data-confirm-accept>' +
             esc(action) +
             '</button></div>';
-        panel.querySelector('.cs-kd-content').prepend(box);
+        placeConfirmation(box, before);
         return new Promise(function (resolve) {
             function finish(value) {
                 box.remove();
@@ -67,7 +77,8 @@
                     finish(false);
                 }
             });
-            box.querySelector('[data-confirm-cancel]').focus();
+            box.querySelector('[data-confirm-cancel]').focus({ preventScroll: true });
+            box.scrollIntoView({ block: 'nearest' });
         });
     }
     function esc(v) {
@@ -567,6 +578,7 @@
                             'Apply to the entire recording?',
                             'Existing Kimai edits and locks will be checked.',
                             'Apply reviewed values',
+                            e.submitter || form.querySelector('button[type=submit]'),
                         ))
                     )
                         return;
@@ -601,6 +613,7 @@
                         'Retry creating this recording?',
                         'Continue only after checking Kimai and confirming no entry exists.',
                         'I checked; retry creation',
+                        retry,
                     ))
                 )
                     return;
@@ -655,12 +668,12 @@
         var sb = panel.querySelector('[data-stop]');
         if (sb)
             sb.onclick = function () {
-                stop(a);
+                stop(a, null, sb);
             };
         var eb = panel.querySelector('[data-exclude]');
         if (eb)
             eb.onclick = function () {
-                exclude(a);
+                exclude(a, eb);
             };
         panel.querySelectorAll('[data-create]').forEach(function (b) {
             b.onclick = function () {
@@ -705,7 +718,7 @@
         }
         setBusy();
     }
-    async function stop(a, ids) {
+    async function stop(a, ids, trigger) {
         if (busy || confirmation) return;
         if (
             !ids &&
@@ -716,6 +729,7 @@
                     a.source.length +
                     ' contributing connections. Remote access remains connected.',
                 'Stop & keep time',
+                trigger,
             ))
         )
             return;
@@ -729,13 +743,14 @@
             message(e.message, true);
         }
     }
-    async function exclude(a) {
+    async function exclude(a, trigger) {
         if (busy || confirmation) return;
         if (
             !(await inlineConfirm(
                 'Discard ' + duration(a.seconds) + '?',
                 'This excludes the entire recording and all contributors. Connection history is retained. An owned Kimai entry can only be removed if unchanged and unlocked.',
                 'Discard recording',
+                trigger,
             ))
         )
             return;
@@ -939,6 +954,7 @@
                         'Approve this recording?',
                         'Send the displayed effective start/end, destination and description. Existing Kimai edits and locks will be checked.',
                         'Approve recording',
+                        b,
                     ))
                 )
                     return;
@@ -964,7 +980,7 @@
                 var a = shown.find(function (x) {
                     return x.id === b.dataset.inboxDiscard;
                 });
-                if (a) exclude(a);
+                if (a) exclude(a, b);
             };
         });
         panel.querySelectorAll('[data-review]').forEach(function (b) {
