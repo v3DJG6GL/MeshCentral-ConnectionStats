@@ -100,6 +100,12 @@ async function storeSuite(db, label) {
     assert.equal(await db.getSession('s_kimai-expired'), null, m('Kimai source session expired'));
     assert.deepEqual(await db.getSetting(kimaiKey), kimaiBlock, m('Kimai ledger survives session retention'));
 
+    const allocationKey = 'kimai:user:' + 'a'.repeat(64) + ':allocation:' + 'c'.repeat(36);
+    const allocation = { id:'c'.repeat(36), revision:2, status:'excluded', spans:[{sessionId:'s_kimai-expired',begin:T-10000,end:T}], draft:{description:'Grüezi'}, blocks:[kimaiKey] };
+    await db.setSetting(allocationKey, allocation);
+    await db.sweepRetention(5);
+    assert.deepEqual(await db.getSetting(allocationKey), allocation, m('device allocation and exclusion survive retention'));
+
     // settings and version
     await db.setSetting('settings', { retentionDays: 30, nested: { a: 1 }, text: 'Grüezi' });
     assert.deepEqual(await db.getSetting('settings'), { retentionDays: 30, nested: { a: 1 }, text: 'Grüezi' }, m('settings'));

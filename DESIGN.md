@@ -196,7 +196,7 @@ accounting behavior, recovery, and test instructions. This supersedes the origin
 - Indexes: `start`, `nodeid`, `userid`, `meshid`.
 - Optional nightly rollup per day, device, admin, type, only if year views
   get slow. Rebuilt from raw.
-- Retention setting, default 365 days, swept at startup and daily.
+- Retention setting, default 0 (disabled), swept at startup and daily.
 - Device and group names are stored with the session so history survives
   deletion.
 - Store: NeDB file `plugin-connectionstats-sessions.db` via
@@ -270,10 +270,24 @@ Decided 2026-09-07:
   into admin totals, show as "Guest: name" in the session list, and get a
   `guest` column in exports.
 
-## Proposed Kimai device controls (design study)
+## Kimai device controls (0.4.0)
 
-The [device-control research and UX specification](docs/kimai-device-ux/design.md)
-and [interactive mockup](docs/kimai-device-ux/mockup.html) explore manual timers,
-scoped stop/discard actions, end-session review, and inline destination creation.
-This is a proposal, not implemented plugin functionality. The specification includes
-the coverage-ledger changes and compatibility gates required before implementation.
+Implemented from the approved [UX specification](docs/kimai-device-ux/design.md).
+The [interactive mockup](docs/kimai-device-ux/mockup.html) remains the design study.
+Device toolbars open a shared recording editor; disconnect review and the persistent
+inbox operate on the same allocations. Manual starts, contributor-specific stops,
+stop/resume gaps, reviewed destination changes, drafts and explicit exclusion are
+persisted separately from source sessions. Revision checks protect concurrent edits.
+
+`kimai-device.js` supplies allocation, coverage and review logic; the scoped
+`public/kimai-device.js` and `.css` supply the host-toolbar UI. Allocation documents
+and durable operation records share the supported settings stores, independently of
+session retention. All entry paths check coverage, including previously built
+previews. Account serialization, ownership checks and existing CSRF protection apply.
+
+Device-enabled profiles use the approved completed-entry fallback: live elapsed time
+is tracked locally because remote timer creation cannot atomically guarantee that
+another Kimai client's timer remains untouched. Existing owned remote timers are
+reconciled, while new completed entries use the shared synchronization ledger.
+Automation remains disabled by default; review defaults to always. See readme.md for
+migration behavior, recovery, setup and validation limits.

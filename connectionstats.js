@@ -41,6 +41,7 @@ module.exports.connectionstats = function (parent) {
         'csEnsureTab',
         'csOnMessage',
         'csActivityInit',
+        'csKimaiInit',
         'csKindOf',
         'csActivitySession',
         'csBeat',
@@ -59,7 +60,18 @@ module.exports.connectionstats = function (parent) {
             });
             mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
             pluginHandler.connectionstats.csActivityInit();
+            pluginHandler.connectionstats.csKimaiInit();
         } catch (e) { }
+    };
+
+    obj.csKimaiInit = function () {
+        if (window.__csKimaiLoaded) return;
+        window.__csKimaiLoaded = true;
+        var base = (typeof domainUrl == 'string' ? domainUrl : '/') + 'pluginadmin.ashx?pin=connectionstats&file=';
+        // no-store bootstrap avoids retaining old host controls across plugin upgrades.
+        var version = Date.now();
+        var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = base + 'kimai-device.css&v=' + version; document.head.appendChild(css);
+        var script = document.createElement('script'); script.src = base + 'kimai-device.js&v=' + version; document.head.appendChild(script);
     };
 
     // ---- active time: input in the Desktop, Terminal and Files views becomes heartbeats ----
@@ -171,6 +183,7 @@ module.exports.connectionstats = function (parent) {
             if (typeof currentNode == 'undefined' || currentNode == null) return;
             pluginHandler.registerPluginTab({ tabId: 'pluginConnectionStats', tabTitle: 'Connection Stats' });
             pluginHandler.connectionstats.csEnsureTab(currentNode._id);
+            if (window.CSDevice) window.CSDevice.refresh();
         } catch (e) { }
     };
 
@@ -707,6 +720,7 @@ module.exports.connectionstats = function (parent) {
         if (api == 'export') { obj.apiExport(req, res, user); return; }
         var work;
         if (api == 'kimai') work = obj.kimai.info(user);
+        else if (api == 'kimai-device') work = obj.kimai.device.state(user, req.query.nodeid);
         else if (api == 'kimai-destinations') work = obj.kimai.destinations(user, req.query.kind, req.query.parent);
         else if (api == 'query') work = obj.apiQuery(user, req.query);
         else if (api == 'settings') work = Promise.resolve(obj.isAdmin(user) ? { settings: obj.settings, backfill: obj.backfillInfo(), types: obj.events.TYPES, version: PLUGIN_VERSION } : { error: 'Site administrators only', status: 403 });
@@ -723,7 +737,7 @@ module.exports.connectionstats = function (parent) {
             res.set('Cache-Control', 'no-store');
             res.json(r);
         }).catch(function (e) {
-            if (api === 'kimai' || api === 'kimai-destinations') { res.status(400).json({ error: e.message || 'Kimai request failed' }); return; }
+            if (api === 'kimai' || api === 'kimai-destinations' || api === 'kimai-device') { res.status(400).json({ error: e.message || 'Kimai request failed' }); return; }
             console.log('CONNSTATS: api error: ' + (e && e.stack ? e.stack : e));
             res.status(500).json({ error: 'internal error' });
         });
@@ -731,7 +745,7 @@ module.exports.connectionstats = function (parent) {
 
     // Static files of the page. There is no static-file plumbing for plugins in MeshCentral, so
     // the page fetches them from this same authenticated URL. Strict whitelist.
-    var FILES = { 'kimai.js': 'application/javascript; charset=utf-8', 'dashboard.js': 'application/javascript; charset=utf-8', 'connectionstats.css': 'text/css; charset=utf-8', 'export.js': 'application/javascript; charset=utf-8' };
+    var FILES = { 'kimai-device.js': 'application/javascript; charset=utf-8', 'kimai-device.css': 'text/css; charset=utf-8', 'kimai.js': 'application/javascript; charset=utf-8', 'dashboard.js': 'application/javascript; charset=utf-8', 'connectionstats.css': 'text/css; charset=utf-8', 'export.js': 'application/javascript; charset=utf-8' };
     obj.serveFile = function (req, res) {
         var name = String(req.query.file);
         if (FILES[name] == null) { res.sendStatus(404); return; }

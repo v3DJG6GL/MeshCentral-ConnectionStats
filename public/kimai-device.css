@@ -1,0 +1,344 @@
+/* Scoped to the device controls: inherit MeshCentral's theme without altering host UI. */
+.cs-kd-panel,
+.cs-kd-dialog,
+.cs-kd-strip {
+    --kd-bg: #fff;
+    --kd-layer: #f2f5f8;
+    --kd-text: #202c3a;
+    --kd-muted: #526170;
+    --kd-border: #b9c5d1;
+    --kd-action: #275f9e;
+    --kd-focus: #1379d8;
+    --kd-warning: #815200;
+    --kd-danger: #a52732;
+    font-family:
+        Segoe UI,
+        Arial,
+        sans-serif;
+    color: var(--kd-text);
+    font-size: 14px;
+    line-height: 1.45;
+    text-align: left;
+    box-sizing: border-box;
+}
+:is(body.night, html.night) .cs-kd-panel,
+:is(body.night, html.night) .cs-kd-dialog,
+:is(body.night, html.night) .cs-kd-strip {
+    --kd-bg: #25292f;
+    --kd-layer: #303740;
+    --kd-text: #edf0f5;
+    --kd-muted: #b2becc;
+    --kd-border: #596674;
+    --kd-action: #477bb9;
+    --kd-focus: #8bc7ff;
+    --kd-warning: #f1c56d;
+    --kd-danger: #ff9ca5;
+}
+.cs-kd-strip {
+    display: inline-flex;
+    margin: 3px 8px;
+    vertical-align: middle;
+    max-width: 100%;
+}
+.cs-kd-chip {
+    border: 1px solid var(--kd-border) !important;
+    background: var(--kd-layer) !important;
+    color: var(--kd-text) !important;
+    border-radius: 4px;
+    padding: 5px 9px !important;
+    max-width: 100%;
+    white-space: normal;
+    cursor: pointer;
+    font: inherit !important;
+    font-variant-numeric: tabular-nums;
+}
+.cs-kd-panel {
+    position: fixed;
+    z-index: 10000;
+    top: 48px;
+    right: 10px;
+    width: 410px;
+    max-width: calc(100vw - 20px);
+    max-height: calc(100vh - 64px);
+    overflow: auto;
+    background: var(--kd-bg);
+    border: 1px solid var(--kd-border);
+    border-radius: 5px;
+    box-shadow: 0 8px 32px #0005;
+    padding: 0 18px 20px;
+}
+.cs-kd-panel[hidden],
+.cs-kd-panel [hidden] {
+    display: none !important;
+}
+.cs-kd-panel * {
+    box-sizing: border-box;
+}
+.cs-kd-panel header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--kd-bg);
+    padding: 15px 0 8px;
+}
+.cs-kd-panel h2 {
+    font:
+        600 20px/1.3 Segoe UI,
+        Arial,
+        sans-serif;
+    margin: 0;
+    color: var(--kd-text);
+}
+.cs-kd-panel h3 {
+    font:
+        600 15px/1.4 Segoe UI,
+        Arial,
+        sans-serif;
+    margin: 12px 0 6px;
+    color: var(--kd-text);
+}
+.cs-kd-panel nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-bottom: 1px solid var(--kd-border);
+    padding-bottom: 10px;
+}
+.cs-kd-panel nav button {
+    padding: 4px 7px;
+    font-size: 12px;
+}
+.cs-kd-panel p {
+    margin: 10px 0;
+}
+.cs-kd-panel button {
+    font: inherit;
+    background: var(--kd-layer);
+    color: var(--kd-text);
+    border: 1px solid var(--kd-border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    height: auto;
+    width: auto;
+    line-height: 1.4;
+}
+.cs-kd-panel button:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+.cs-kd-panel button:hover:not(:disabled),
+.cs-kd-chip:hover {
+    filter: brightness(1.12);
+}
+.cs-kd-panel :focus-visible,
+.cs-kd-chip:focus-visible {
+    outline: 2px solid var(--kd-focus);
+    outline-offset: 3px;
+}
+.cs-kd-panel a {
+    color: var(--kd-focus);
+    text-decoration: underline;
+}
+.cs-kd-panel .cs-kd-primary {
+    background: var(--kd-action);
+    color: #fff;
+    border-color: var(--kd-action);
+}
+.cs-kd-panel .cs-kd-danger,
+.cs-kd-panel .cs-kd-error {
+    color: var(--kd-danger);
+}
+.cs-kd-panel .cs-kd-warning {
+    color: var(--kd-warning);
+    border-left: 3px solid currentColor;
+    padding-left: 10px;
+}
+.cs-kd-panel .cs-kd-message {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+.cs-kd-panel .cs-kd-message:empty {
+    display: none;
+}
+.cs-kd-panel label {
+    display: block;
+    margin: 12px 0 5px;
+    font-weight: 500;
+}
+.cs-kd-panel input:not([type='checkbox']),
+.cs-kd-panel select,
+.cs-kd-panel textarea {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 34px;
+    font: inherit;
+    padding: 6px 8px;
+    background: var(--kd-bg);
+    color: var(--kd-text);
+    border: 1px solid var(--kd-border);
+    border-radius: 3px;
+    margin-top: 4px;
+    box-shadow: none;
+}
+.cs-kd-panel textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+.cs-kd-panel input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    margin: 0 5px 0 0;
+    vertical-align: middle;
+    accent-color: var(--kd-action);
+}
+.cs-kd-panel small {
+    display: block;
+    font-size: 12px;
+    color: var(--kd-muted);
+    font-weight: 400;
+    margin: 4px 0;
+}
+.cs-kd-panel fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+}
+.cs-kd-panel .cs-kd-sources {
+    border: 1px solid var(--kd-border);
+    padding: 4px 9px 9px;
+    margin: 12px 0;
+}
+.cs-kd-panel .cs-kd-sources label {
+    font-size: 13px;
+    font-weight: 400;
+    margin: 5px 0;
+}
+.cs-kd-panel legend {
+    font-size: 13px;
+    padding: 0 4px;
+}
+.cs-kd-panel details {
+    border-top: 1px solid var(--kd-border);
+    margin-top: 14px;
+    padding-top: 9px;
+}
+.cs-kd-panel summary {
+    cursor: pointer;
+}
+.cs-kd-panel footer {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 16px 0 8px;
+}
+.cs-kd-panel .cs-kd-times {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+}
+.cs-kd-panel .cs-kd-create {
+    border: 0;
+    background: none;
+    padding: 2px 0;
+    color: var(--kd-focus);
+    font-size: 12px;
+}
+.cs-kd-panel .cs-kd-create-form {
+    background: var(--kd-layer);
+    border-left: 3px solid var(--kd-action);
+    padding: 5px 12px 12px;
+    margin-top: 8px;
+}
+.cs-kd-panel .cs-kd-create-form button {
+    margin: 5px 5px 0 0;
+}
+.cs-kd-panel .cs-kd-contributors {
+    border-top: 1px solid var(--kd-border);
+    margin-top: 10px;
+    padding-top: 4px;
+}
+.cs-kd-contributors div {
+    margin: 6px 0;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+.cs-kd-contributors button {
+    font-size: 12px;
+}
+.cs-kd-panel .cs-kd-summary {
+    background: var(--kd-layer);
+    padding: 9px 10px;
+    font-variant-numeric: tabular-nums;
+}
+.cs-kd-panel article {
+    padding: 4px 0 14px;
+    border-bottom: 1px solid var(--kd-border);
+}
+.cs-kd-dialog {
+    padding: 0;
+    border: 1px solid var(--kd-border);
+    border-radius: 6px;
+    background: var(--kd-bg);
+    width: 440px;
+    max-width: calc(100vw - 20px);
+    max-height: calc(100vh - 30px);
+}
+.cs-kd-dialog::backdrop {
+    background: #0009;
+}
+.cs-kd-dialog .cs-kd-panel {
+    position: static;
+    box-shadow: none;
+    border: 0;
+    width: 100%;
+    max-width: none;
+    max-height: calc(100vh - 34px);
+}
+@media (max-width: 600px) {
+    .cs-kd-panel {
+        top: 8px;
+        right: 8px;
+        max-width: calc(100vw - 16px);
+        max-height: calc(100vh - 16px);
+        width: calc(100vw - 16px);
+    }
+    .cs-kd-chip {
+        font-size: 12px !important;
+    }
+    .cs-kd-strip {
+        margin: 3px;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cs-kd-panel * {
+        scroll-behavior: auto !important;
+    }
+}
+
+.cs-kd-quick-stop {
+    font: inherit;
+    color: var(--kd-text);
+    background: var(--kd-layer);
+    border: 1px solid var(--kd-border);
+    border-radius: 4px;
+    margin-left: 4px;
+    padding: 5px 8px;
+    cursor: pointer;
+}
+.cs-kd-quick-stop[hidden] {
+    display: none !important;
+}
+.cs-kd-quick-stop:focus-visible {
+    outline: 2px solid var(--kd-focus);
+    outline-offset: 3px;
+}
+.cs-kd-revision {
+    border-left: 3px solid var(--kd-warning);
+    padding: 4px 10px 10px;
+    margin: 10px 0;
+    background: var(--kd-layer);
+}

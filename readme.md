@@ -94,7 +94,7 @@ additionally runs the store contract, the retention sweep and an end-to-end rela
 
 Apache-2.0
 
-## Kimai integration (0.3.0)
+## Kimai integration (0.4.0)
 
 Open **Kimai** from the dashboard. A site administrator first configures one HTTPS
 Kimai base URL. Each user then supplies a personal Bearer API token using **Test
@@ -110,7 +110,9 @@ customer, project, activity, connected/active time, billable status, description
 and tags. The first matching rule wins; unmatched and guest sessions are excluded.
 Description placeholders: `{device}`, `{group}`, `{types}`, `{admin}`, `{date}`,
 `{sessions}`. The `meshcentral` tag and a stable description marker identify entries.
-Do not remove markers while an entry is managed by the integration.
+Do not remove markers while an entry is managed by the integration. Missing tags
+are created explicitly as visible tags. Give the API user tag-creation permission,
+or pre-create the visible `meshcentral` tag and any configured tags in Kimai.
 
 Use **Export → Send to Kimai** to preview the current range and filters. Only your
 own currently permitted sessions are included. Sessions intersecting the range
@@ -127,17 +129,49 @@ end is begin plus the measured duration. They do not represent exact activity
 instants. Missing measurements and overlapping activity require a reviewed duration;
 there is no automatic fallback to connected time.
 
-**Both automation options start disabled.** Live sync starts a shared timer for
-matching connected-time sessions and stops it after the last disconnect. Timers
-running across midnight are split into daily entries when they close. Existing
-foreign timers are never stopped or overwritten. Conflicting projects, uncertain
-end times, or remote edits require review. Active-time rules and short sessions
-that closed before a timer could start are processed after disconnect.
+**Both automation options start disabled.** For users who open the new device
+controls, live automation starts a local shared recording for matching connected-time
+sessions. It closes after the last contributing connection disconnects. Completed
+recordings are reviewed or synchronized according to the personal review preference.
+The default preference is **Always review**. Active-time rules run after disconnect.
+
+### Device controls and review
+
+A compact Kimai control appears in the device's Desktop, Terminal and Files toolbars.
+Use it to open the side editor and start tracking an owned connection even without a
+mapping rule or live automation. Choose customer, project, activity, description,
+tags and billing. Project/activity creation is available when your Kimai permissions
+allow it. Manual starts count from now by default; including earlier connection time
+requires overlap checks. Destination changes switch from now by default.
+
+Stopping tracking leaves remote access connected. Stop one contributor or all
+contributors, keep the recorded time, and resume later without filling the gap.
+Discarding time excludes it from subsequent exports; it does not delete the underlying
+ConnectionStats session. Removing an already-sent entry requires confirmation and
+is allowed only for an unchanged, unlocked entry owned by the integration.
+
+The side editor and disconnect review edit the same recording. Review is offered
+after your last connection ends, with personal **always / only issues / never**
+prompt preferences and drawer/modal presentation. These preferences do not enable
+live or nightly automation. Unresolved items remain in **Kimai → Review inbox**.
+Drafts survive closing the editor. Concurrent changes require an explicit refresh
+before editing the newer revision; remote edits require keeping Kimai's version or
+explicitly reviewing a replacement.
+
+**Remote-timer compatibility fallback:** new device recordings count locally and
+send completed entries. They deliberately do not start a running Kimai timer:
+Kimai's default tracking mode can stop another timer when a competing client starts
+one, and a preflight check cannot make that operation atomic. Existing timers owned
+by earlier integration versions are reconciled and stopped on closure; unrelated
+timers are never stopped. Profiles that have not opened the new controls retain the
+legacy live workflow. Keep automation disabled until your installation is validated.
 
 Nightly sync runs after 02:00 in your Kimai timezone. It includes the previous day,
 late closures and outstanding work since enabling sync; backup/backfill history
 requires manual preview. Failed requests are retried with a five-minute delay.
-All modes share a durable ledger, so repeat exports do not create duplicates.
+All modes share a durable coverage ledger, so repeat exports do not create duplicates.
+Allocations and explicit stop/discard intervals also prevent an older preview from
+re-exporting time reserved by the device controls.
 Remote edits and deletions are flagged. **Keep Kimai version** relinquishes updates;
 **Review replacement** lets you explicitly review a replacement or a retry after
 checking Kimai. Locked/exported entries remain untouched. An uncertain create is
@@ -175,6 +209,10 @@ node test/kimai_live.test.js
 
 This test creates and deletes a test customer, project, activity and timesheets.
 Use a dedicated test instance/account with those permissions. It exercises the
-real HTTPS client, connection setup, preview, create/update, and live timers.
+real HTTPS client, connection setup, preview, create/update, legacy live timers,
+manual device recording, destination creation and owned-entry discard. Browser
+regressions cover device controls; the classic MeshCentral toolbar integration has
+been visually checked in a fixture. Bootstrap layouts and your deployed instance
+still need installation-specific validation.
 Automation should remain disabled on a deployment until connection testing and a
 small manual preview/send have succeeded against that installation.

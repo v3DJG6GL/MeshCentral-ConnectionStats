@@ -9,7 +9,7 @@ test(
     { skip: !url || !token },
     async () => {
         const c = new Client(url, token),
-            created = [];
+            created = [], createdDestinations = [];
         const customer = await c.request('POST', '/customers', {
             name: 'ConnectionStats integration ' + Date.now(),
             country: 'CH',
@@ -84,6 +84,8 @@ test(
                 preview: preview.id,
                 rows: [{ id: preview.rows[0].id, description: 'Updated description' }],
             });
+            history = (await svc.info(user)).history;
+            assert.equal(history[0].status, 'synced', JSON.stringify({error:history[0].error,last:history[0].last,remote:await c.request('GET','/timesheets/'+created[0])}));
             assert.match((await c.request('GET', '/timesheets/' + created[0])).description, /Updated description/);
             docs.push({
                 _id: 's_live',
@@ -109,8 +111,42 @@ test(
                 history.find((l) => l.id === live.id).error,
             );
             assert.ok((await c.request('GET', '/timesheets/' + live.remoteId)).end);
+            // Isolate the next workflow from the server's minute rounding on the legacy timer.
+            for (const id of created) await c.request('DELETE', '/timesheets/' + id);
+            created.length = 0;
+
+            // Device controls: independent manual recording and permission-checked inline creation.
+            await svc.action(user, { op: 'settings', rules: [rule], live: false, nightly: false });
+            const session = { _id:'s_device', userid:user._id, nodeid:'node//device', type:'terminal', start:Date.now(), end:null, source:'live' };
+            docs.push(session);
+            await svc.device.state(user,session.nodeid);
+            const action = (command,data) => svc.action(user,{op:'device',command,requestId:require('crypto').randomUUID(),...data});
+            const newProject = await action('create',{kind:'projects',name:'Device work '+Date.now(),parent:customer.id});
+            createdDestinations.push('/projects/'+newProject.id);
+            const newActivity = await action('create',{kind:'activities',name:'Device activity',parent:newProject.id});
+            createdDestinations.push('/activities/'+newActivity.id);
+            const destination={customer:customer.id,project:newProject.id,activity:newActivity.id,description:'Device recording with seconds',tags:''};
+            await action('start',{sessions:[session._id],destination,from:'now'});
+            await new Promise(resolve=>setTimeout(resolve,2100));
+            session.end=Date.now();
+            let deviceState=await svc.device.state(user,session.nodeid);
+            let allocation=deviceState.allocations.find(a=>a.origin==='manual');
+            assert.equal(allocation.status,'review');
+            await action('save',{id:allocation.id,revision:allocation.revision,row:destination,reviewed:true});
+            deviceState=await svc.device.state(user,session.nodeid);
+            allocation=deviceState.allocations.find(a=>a.id===allocation.id);
+            assert.equal(allocation.status,'synced',allocation.error);
+            created.push(...allocation.remoteIds);
+            const remote=await c.request('GET','/timesheets/'+allocation.remoteIds[0]);
+            assert.match(remote.description,/Device recording with seconds/);
+            assert.ok(remote.tags.some(t=>(t.name||t)==='meshcentral'), JSON.stringify({tags:remote.tags, tagsFull:remote.tagsFull}));
+            await action('exclude',{id:allocation.id,revision:allocation.revision,confirmed:true});
+            created.splice(created.indexOf(allocation.remoteIds[0]),1);
+            await assert.rejects(c.request('GET','/timesheets/'+allocation.remoteIds[0]),e=>e.status===404);
+
         } finally {
             for (const id of created) await c.request('DELETE', '/timesheets/' + id);
+            for (const dest of createdDestinations.reverse()) await c.request('DELETE',dest);
             await c.request('DELETE', '/activities/' + activity.id);
             await c.request('DELETE', '/projects/' + project.id);
             await c.request('DELETE', '/customers/' + customer.id);

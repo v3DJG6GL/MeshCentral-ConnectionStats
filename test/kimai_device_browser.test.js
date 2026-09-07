@@ -1,0 +1,169 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../public/kimai-device.js'), 'utf8');
+function element() {
+    return {
+        children: [],
+        className: '',
+        textContent: '',
+        append(c) {
+            this.children.push(c);
+        },
+        querySelector(selector) {
+            return this.children.find((c) => selector === '.' + c.className) || null;
+        },
+    };
+}
+async function harness(overrides = {}, environment = {}) {
+    const calls = [],
+        hosts = Object.fromEntries(
+            ['desktopCustomUiButtons', 'terminalCustomUiButtons', 'p13rightOfButtons'].map((id) => [
+                id,
+                element(),
+            ]),
+        );
+    const initial = {
+        csrf: 'csrf-sample',
+        connected: true,
+        timezone: 'Europe/Zurich',
+        preferences: { prompt: 'never' },
+        sessions: [],
+        allocations: [],
+        reviews: [],
+        ...overrides,
+    };
+    const context = {
+        URLSearchParams,
+        Intl,
+        Date,
+        Set,
+        Promise,
+        Error,
+        Number,
+        String,
+        Object,
+        Array,
+        Math,
+        crypto: { randomUUID: () => 'operation-id' },
+        console,
+        setTimeout: () => 1,
+        clearTimeout() {},
+        setInterval() {},
+        currentNode: { _id: 'node/test' },
+        domainUrl: '/tenant/',
+        document: {
+            hidden: false,
+            getElementById: (id) => hosts[id],
+            createElement: element,
+            querySelectorAll: () =>
+                Object.values(hosts).flatMap((h) => h.children.flatMap((c) => c.children)),
+        },
+        window: {},
+        fetch: async (url, options) => {
+            calls.push({ url, options });
+            return {
+                ok: true,
+                json: async () => (options && options.method === 'POST' ? { ok: true } : initial),
+            };
+        },
+    };
+    Object.assign(context, environment);
+    context.window.window = context.window;
+    vm.createContext(context);
+    vm.runInContext(
+        source.replace(
+            /window\.CSDevice\s*=\s*\{/,
+            'window.__test={duration,title,post,refresh,deviceSpans,deviceAllocations,setActive:function(a){active=a;}};window.CSDevice={',
+        ),
+        context,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    return { context, calls, hosts, initial, api: context.window.__test };
+}
+test('device mounting preserves host toolbar content and avoids duplicate controls', async () => {
+    const h = await harness();
+    for (const host of Object.values(h.hosts)) assert.equal(host.children.length, 1);
+    h.hosts.desktopCustomUiButtons.children.push({ className: 'other-plugin' });
+    await h.api.refresh(true);
+    assert.equal(h.hosts.desktopCustomUiButtons.children.length, 2);
+    assert.match(
+        h.calls[0].url,
+        /^\/tenant\/pluginadmin\.ashx\?pin=connectionstats&api=kimai-device&nodeid=node%2Ftest$/,
+    );
+});
+test('local fallback and remote running status are never conflated', async () => {
+    const h = await harness();
+    assert.equal(h.api.title({ status: 'recording-local' }), 'Recording locally · send after review');
+    assert.equal(h.api.title({ status: 'recording' }), 'Recording in Kimai');
+    assert.equal(h.api.title({ status: 'running' }), 'Recording in Kimai');
+    assert.equal(h.api.duration(60), '0:01:00');
+    assert.equal(h.api.duration(97449), '27:04:09');
+});
+test('device mutation sends CSRF and editor revision rather than silently adopting newer poll state', async () => {
+    const h = await harness({ allocations: [{ id: 'a', revision: 8 }] });
+    h.api.setActive({ id: 'a', revision: 7 });
+    await h.api.post('save', { id: 'a', row: { description: 'Reviewed work' } });
+    const call = h.calls.find((c) => c.options && c.options.method === 'POST'),
+        body = new URLSearchParams(call.options.body),
+        data = JSON.parse(body.get('data'));
+    assert.equal(body.get('csrf'), 'csrf-sample');
+    assert.equal(body.get('action'), 'kimai');
+    assert.equal(data.revision, 7);
+    assert.equal(data.op, 'device');
+    assert.equal(data.command, 'save');
+    assert.equal(data.requestId, 'operation-id');
+    await h.api.post('draft', { id: 'a', row: { description: 'Still editing' } });
+    const next = h.calls.filter((c) => c.options && c.options.method === 'POST')[1];
+    assert.equal(JSON.parse(new URLSearchParams(next.options.body).get('data')).revision, 7);
+});
+test('failed mutations are not blindly retried, and queue recovers for later requests', async () => {
+    const h = await harness();
+    let attempts = 0;
+    h.context.fetch = async (url, options) => {
+        if (options && options.method === 'POST') {
+            attempts++;
+            if (attempts === 1) throw Error('Connection lost');
+        }
+        return { ok: true, json: async () => (options ? { ok: true } : h.initial) };
+    };
+    await assert.rejects(h.api.post('start', {}), /Connection lost/);
+    assert.equal(attempts, 1);
+    await h.api.post('preferences', { prompt: 'never', presentation: 'drawer' });
+    assert.equal(attempts, 2);
+});
+test('another device active connection suppresses automatic review presentation', async () => {
+    const h = await harness({
+        preferences: { prompt: 'always' },
+        activeConnections: 1,
+        reviews: [{ id: 'review-a', revision: 1, review: true }],
+    });
+    assert.equal(h.calls.filter((c) => c.options && c.options.method === 'POST').length, 0);
+});
+
+test('standalone inbox refresh preserves tenant prefix and omits node filter', async () => {
+    const h = await harness(
+        {},
+        { domainUrl: undefined, location: { pathname: '/tenant/pluginadmin.ashx' }, currentNode: null },
+    );
+    await h.api.refresh(true);
+    assert.equal(h.calls[0].url, '/tenant/pluginadmin.ashx?pin=connectionstats&api=kimai-device');
+    assert.equal(typeof h.context.window.CSDevice.openInbox, 'function');
+});
+test('quick stop selects only open contributors on the current device', async () => {
+    const h = await harness();
+    const ids = h.api.deviceSpans(
+        {
+            spans: [
+                { sessionId: 'desktop', nodeid: 'a', end: null },
+                { sessionId: 'terminal', nodeid: 'a', end: null },
+                { sessionId: 'other-device', nodeid: 'b', end: null },
+                { sessionId: 'closed', nodeid: 'a', end: 200 },
+            ],
+        },
+        'a',
+    );
+    assert.deepEqual(Array.from(ids), ['desktop', 'terminal']);
+});

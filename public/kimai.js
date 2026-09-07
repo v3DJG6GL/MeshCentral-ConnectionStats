@@ -164,7 +164,7 @@
         var h =
             '<div class="cs-bar"><b>Kimai</b><a class="cs-btn" href="' +
             api +
-            '">Back to dashboard</a><button data-refresh>Refresh status</button></div><p role="status">' +
+            '">Back to dashboard</a><button data-refresh>Refresh status</button><button data-device-inbox>Review inbox</button></div><p role="status">' +
             esc(message || (state && state.automationError) || '') +
             '</p>';
         if (!state || !meta) {
@@ -385,6 +385,16 @@
     root.addEventListener('click', function (ev) {
         var b = ev.target.closest('button');
         if (!b || busy) return;
+        if (b.hasAttribute('data-device-inbox')) {
+            try {
+                if (window.parent.CSDevice) { window.parent.CSDevice.openInbox(); return; }
+            } catch (_) { }
+            if (window.CSDevice) { window.CSDevice.openInbox(); return; }
+            var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = api + '&file=kimai-device.css&v=' + encodeURIComponent(boot.version); document.head.appendChild(css);
+            var script = document.createElement('script'); script.src = api + '&file=kimai-device.js&v=' + encodeURIComponent(boot.version);
+            script.onload = function () { window.CSDevice.openInbox(); }; document.head.appendChild(script);
+            return;
+        }
         if (b.hasAttribute('data-add')) {
             captureRules();
             state.rules.push({ basis: 'connected', description: '{device}: {types} ({sessions} sessions)' });

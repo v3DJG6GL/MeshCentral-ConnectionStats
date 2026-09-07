@@ -1,3 +1,20 @@
+## 0.4.0 — 2026-09-08
+
+- Add device-toolbar Kimai controls, manual recording without rules, contributor
+  stop/resume, a shared side editor, optional disconnect review and a persistent
+  review inbox. Edit destinations, description, timing and billing; create projects
+  and activities with the user's Kimai permissions.
+- Persist drafts, allocation coverage, exclusions, revisions and operation identity.
+  Prevent duplicate exports across device, manual and scheduled workflows; preserve
+  remote edits and require review for uncertain writes and conflicting time.
+- Use local elapsed-time recording and completed-entry sync for device-enabled
+  profiles until remote timer creation can safely preserve concurrent external
+  timers. Both automation options remain off by default; review defaults to always.
+- Explicitly create visible Kimai tags and recover older entries by description
+  marker even when their tag was missing. Preserve seconds and report rounding.
+- Validate allocation persistence across all supported stores and exercise manual
+  recording, destination creation and discard against disposable Kimai 2.66.0.
+
 ## 0.3.3 — 2026-09-07
 
 - Correct Terminal/Files activity attribution for SSH/SFTP and the connection’s own

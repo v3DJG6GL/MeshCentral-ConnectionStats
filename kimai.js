@@ -239,6 +239,25 @@ class Client {
             req.end();
         });
     }
+    async ensureTags(value, journal, persist) {
+        const wanted = [...new Set(String(value || '').split(',').map(x => x.trim()).filter(Boolean))];
+        const existing = new Set((await this.list('/tags')).map(t => typeof t === 'string' ? t : t.name));
+        for (const name of wanted) {
+            const key = hash(name);
+            if (existing.has(name)) { delete journal[key]; continue; }
+            if (journal[key]) throw Error('Tag creation is unconfirmed; check Kimai for "' + name + '" before retrying');
+            journal[key] = { name, attempted: true };
+            await persist();
+            try {
+                await this.request('POST', '/tags', { name, visible: true });
+                delete journal[key]; existing.add(name); await persist();
+            } catch (e) {
+                if (e.status >= 400 && e.status < 500) { delete journal[key]; await persist(); }
+                throw Error('Create the tag "' + name + '" in Kimai, then save again. ' + e.message);
+            }
+        }
+        await persist();
+    }
     async list(path) {
         if (path === '/timesheets' && this.timeline) return this.timeline;
         const finish = (out) => {
@@ -328,6 +347,7 @@ class Service {
         this.locks = new Map();
         this.persisted = new Map();
         this.csrf = new Map();
+        this.device = new (require('./kimai-device').Device)(this);
     }
     serial(key, fn) {
         const prev = this.locks.get(key) || Promise.resolve();
@@ -355,11 +375,25 @@ class Service {
                 this.persisted.set(this.key(user) + ':block:' + id, hash(l));
             }
         }
+        s.allocations = {};
+        for (const id of s.allocationIds || []) {
+            const a = await this.db.getSetting(this.key(user) + ':allocation:' + id);
+            if (a) s.allocations[id] = a;
+        }
         return s;
     }
     async save(user, s) {
         const index = { ...s, ledgerIds: Object.keys(s.ledger) };
         delete index.ledger;
+        index.allocationIds = Object.keys(s.allocations || {});
+        delete index.allocations;
+        for (const id of index.allocationIds) {
+            const key = this.key(user) + ':allocation:' + id, value = s.allocations[id], digest = hash(value);
+            if (this.persisted.get(key) !== digest) {
+                await this.db.setSetting(key, value);
+                this.persisted.set(key, digest);
+            }
+        }
         for (const id of index.ledgerIds) {
             const key = this.key(user) + ':block:' + id,
                 digest = hash(s.ledger[id]);
@@ -444,7 +478,7 @@ class Service {
         if (query.endLocal) query.end = epoch(query.endLocal, s.tz);
         const docs = await this.sessions(user, query);
         if (docs.length > 20000) throw Error('More than 20000 sessions; select a shorter preview range');
-        const rows = build(docs, s.rules, s.tz);
+        const rows = build(s.device ? require('./kimai-device').available(s, docs) : docs, s.rules, s.tz);
         if (rows.length > 2000) throw Error('More than 2000 entries; select a shorter preview range');
         for (const b of rows) {
             const exact = s.ledger[b.id];
@@ -498,6 +532,7 @@ class Service {
         return this.serial(this.key(user), async () => {
             const s = await this.state(user),
                 op = input.op;
+            if (op === 'device') return this.device.action(user, s, input);
             if (op === 'server') {
                 if (!this.p.isAdmin(user)) throw Error('Site administrators only');
                 const url = String(input.url).replace(/\/+$/, '');
@@ -577,6 +612,7 @@ class Service {
             if (op === 'resolve') {
                 const l = s.ledger[input.id];
                 if (!l) throw Error('No entry to resolve');
+                if (l.allocation) throw Error('Use the device recording review to resolve this entry');
                 if (input.choice === 'retry') {
                     if (!input.row || !input.row.reviewed)
                         throw Error('Review the entry in Kimai and confirm before retrying');
@@ -596,7 +632,7 @@ class Service {
                         }
                         delete l.remoteId;
                     }
-                    const matches = (await c.list('/timesheets?tags[]=meshcentral')).filter((r) =>
+                    const matches = (await c.list('/timesheets')).filter((r) =>
                         String(r.description || '').includes('[' + l.marker + ']'),
                     );
                     if (matches.length) throw Error('Remote marker exists; refresh/reconcile instead of recreating');
@@ -653,6 +689,7 @@ class Service {
                         throw Error('Source sessions changed; refresh the preview');
                     if (original.issue && !edit.reviewed) throw Error('Resolve flagged rows before sending');
                     if (/already belongs|Ambiguous daylight/.test(original.issue || '')) throw Error(original.issue);
+                    if (s.device && require('./kimai-device').reserved(s, original)) throw Error('Source time is now reserved or excluded by device controls; refresh the preview');
                     const b = this.edit(original, edit, s.tz);
                     selected.push(b);
                 }
@@ -695,7 +732,7 @@ class Service {
     }
     async sync(user, s, c, block, replace = false) {
         let l = s.ledger[block.id];
-        if (l && l.status === 'kept') return;
+        if (l && ['kept', 'excluded'].includes(l.status)) return;
         if (!l) {
             l = s.ledger[block.id] = {
                 ...copy(block),
@@ -729,6 +766,7 @@ class Service {
                 'coverageBegin',
                 'coverageEnd',
                 'billable',
+                'allocation',
             ].map((k) => [k, copy(block[k])]),
         );
         const payload = {
@@ -737,12 +775,16 @@ class Service {
             project: block.project,
             activity: block.activity,
             description: block.description + '\n[' + l.marker + ']',
-            tags: block.tags,
+            tags: [...new Set(('meshcentral,' + (block.tags || '')).split(',').map(x => x.trim()).filter(Boolean))].join(','),
             billable: block.billable !== false,
         };
         try {
+            if (c.ensureTags) {
+                s.tagCreates = s.tagCreates || {};
+                await c.ensureTags(payload.tags, s.tagCreates, () => this.save(user, s));
+            }
             if (!l.remoteId && l.attempted) {
-                const matches = (await c.list('/timesheets?tags[]=meshcentral')).filter((r) =>
+                const matches = (await c.list('/timesheets')).filter((r) =>
                     String(r.description || '').includes('[' + l.marker + ']'),
                 );
                 if (matches.length !== 1)
@@ -823,6 +865,7 @@ class Service {
             l.tags = block.tags;
             l.billable = block.billable;
             l.live = block.live;
+            l.allocation = block.allocation;
             l.status = block.end == null ? 'running' : 'synced';
             l.error = null;
             delete l.pendingRequest;
@@ -901,18 +944,31 @@ class Service {
             await this.serial(this.key(user), async () => {
                 try {
                     const s = await this.state(user);
-                    if (!s.token || (!s.live && !s.nightly && !Object.values(s.ledger).some((l) => l.live && !l.end)))
+                    if (!s.token || (!s.device && !s.live && !s.nightly && !Object.values(s.ledger).some((l) => l.live && !l.end)))
                         return;
-                    const c = await this.client(s),
-                        now = Date.now(),
-                        docs = await this.sessions(user, {
-                            start: s.enabledAt || now,
+                    const now = Date.now();
+                    let docs = await this.sessions(user, {
+                            start: s.device ? Math.min(s.device.since, s.enabledAt || now) : (s.enabledAt || now),
                             end: now,
                             scope: 'all',
                             types: null,
                         });
+                    if (s.device) await this.device.refresh(user, s, docs);
+                    const c = await this.client(s);
+                    if (s.device) {
+                        await this.device.flush(user, s, c);
+                        // New device allocations own all current scheduling. Never fall through to
+                        // legacy live starts for a competing destination that refresh held for review.
+                        for (const l of Object.values(s.ledger)) {
+                            if (l.allocation || l.live || !['pending','error','creating'].includes(l.status) || (l.retryAt && l.retryAt > now)) continue;
+                            if (require('./kimai-device').reserved(s,l)) continue;
+                            await this.device.owned(user,l.source);
+                            await this.sync(user,s,c,l.pendingBlock||l);
+                        }
+                        return;
+                    }
                     const open = docs.filter((d) => !d.guest && d.end == null),
-                        running = Object.values(s.ledger).find((l) => l.live && !l.end && l.status !== 'kept');
+                        running = Object.values(s.ledger).find((l) => !l.allocation && l.live && !l.end && l.status !== 'kept');
                     if (running) {
                         const known = await Promise.all(running.source.map((id) => this.db.getSession(id)));
                         const connectedUntil = known.some((d) => d && d.end == null)
@@ -1020,7 +1076,7 @@ class Service {
                         } else await this.sync(user, s, c, b);
                     }
                     for (const l of Object.values(s.ledger))
-                        if (!l.live && ['pending', 'error', 'creating'].includes(l.status)) {
+                        if (!l.allocation && !l.live && ['pending', 'error', 'creating'].includes(l.status)) {
                             if (l.retryAt && l.retryAt > now) continue;
                             if (
                                 Object.values(s.ledger).some(
