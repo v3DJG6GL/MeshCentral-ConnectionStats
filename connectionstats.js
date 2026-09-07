@@ -318,12 +318,45 @@ module.exports.connectionstats = function (parent) {
         });
     };
 
+    // Static files of the page. There is no static-file plumbing for plugins in MeshCentral, so
+    // the page fetches them from this same authenticated URL. Strict whitelist.
+    var FILES = { 'dashboard.js': 'application/javascript; charset=utf-8', 'connectionstats.css': 'text/css; charset=utf-8', 'export.js': 'application/javascript; charset=utf-8' };
+    obj.serveFile = function (req, res) {
+        var name = String(req.query.file);
+        if (FILES[name] == null) { res.sendStatus(404); return; }
+        var fs = require('fs'), path = require('path');
+        fs.readFile(path.join(__dirname, 'public', name), function (err, data) {
+            if (err) { res.sendStatus(404); return; }
+            res.set('Content-Type', FILES[name]);
+            res.set('Cache-Control', 'private, max-age=300');
+            res.send(data);
+        });
+    };
+
     // Admin page: My Server > Plugins > Connection Stats (GET /pluginadmin.ashx?pin=connectionstats)
+    // Also the device tab (view=device&nodeid=...) which embeds the same page in an iframe.
+    // Rendered by string replacement rather than res.render: MeshCentral points the shared Express
+    // 'views' directory at the plugin of the CURRENT request, so a concurrent request from another
+    // plugin could swap the template underneath an async render.
+    var pageCache = null;
     obj.handleAdminReq = function (req, res, user) {
         if (obj.db == null) { res.status(503).send('Connection Stats is still starting'); return; }
         if (req.query.api != null) { obj.handleApi(req, res, user); return; }
-        res.set('Content-Type', 'text/html; charset=utf-8');
-        res.send('<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px">Connection Stats ' + PLUGIN_VERSION + ' is recording sessions. The dashboard arrives with the next build step.</body></html>');
+        if (req.query.file != null) { obj.serveFile(req, res); return; }
+        var boot = { view: 'full', night: (req.query.night == '1'), version: PLUGIN_VERSION, user: user._id, isAdmin: obj.isAdmin(user) };
+        if (req.query.view == 'device' && typeof req.query.nodeid == 'string' && req.query.nodeid.length < 300) {
+            boot.view = 'device'; boot.scope = 'node:' + req.query.nodeid;
+        } else if (typeof req.query.scope == 'string' && req.query.scope.length < 300) {
+            boot.scope = req.query.scope;
+        }
+        if (req.query.view == 'settings') boot.view = 'settings';
+        try {
+            if (pageCache == null || obj.meshServer.args.debug) pageCache = require('fs').readFileSync(require('path').join(__dirname, 'views', 'admin.handlebars')).toString();
+            var html = pageCache.replace('{{{bootJson}}}', JSON.stringify(boot).replace(/</g, '\\u003c'));
+            res.set('Content-Type', 'text/html; charset=utf-8');
+            res.set('Cache-Control', 'no-store');
+            res.send(html);
+        } catch (e) { res.status(500).send('Connection Stats page could not be rendered'); }
     };
 
     obj.handleAdminPostReq = function (req, res, user) {

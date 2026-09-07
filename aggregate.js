@@ -123,6 +123,8 @@ function aggregate(sessions, opts) {
     var start = opts.start, end = opts.end, tz = opts.tz || 'UTC', now = opts.now || Date.now();
     var bucket = (BUCKETS.indexOf(opts.bucket) >= 0) ? opts.bucket : autoBucket(start, end);
     var buckets = bucketEdges(start, end, bucket, tz).map(function (b) { return { s: b.s, e: b.e, by: {}, tot: 0 }; });
+    // per-day totals feed the calendar view when the main buckets are coarser than a day
+    var daily = (bucket == 'week' || bucket == 'month') ? bucketEdges(start, end, 'day', tz).map(function (b) { return { s: b.s, e: b.e, tot: 0 }; }) : null;
     var byType = {}, byDevice = {}, byGroup = {}, pc = [], durs = [], devices = {}, users = {};
     var total = 0, active = 0, seen = 0, count = 0, longest = 0, ongoing = 0;
     for (var i = 0; i < 7; i++) { pc.push([]); for (var j = 0; j < 24; j++) pc[i].push(0); }
@@ -157,9 +159,18 @@ function aggregate(sessions, opts) {
             var v = (Math.min(ce, b.e) - Math.max(cs, b.s)) / 1000;
             b.by[s.type] = (b.by[s.type] || 0) + v; b.tot += v;
         }
+        if (daily != null) {
+            for (var q = 0; q < daily.length; q++) {
+                var db = daily[q];
+                if (db.e <= cs) continue;
+                if (db.s >= ce) break;
+                db.tot += (Math.min(ce, db.e) - Math.max(cs, db.s)) / 1000;
+            }
+        }
         var p = partsIn(cs, tz);
         pc[p.wd][p.h] += sec;
     });
+    if (daily != null) daily.forEach(function (d) { d.tot = Math.round(d.tot); });
     durs.sort(function (a, b) { return a - b; });
     var median = durs.length ? durs[Math.floor(durs.length / 2)] : 0;
     var round = function (n) { return Math.round(n); };
@@ -171,7 +182,7 @@ function aggregate(sessions, opts) {
     for (var t in byType) byType[t] = round(byType[t]);
     return {
         bucket: bucket, tz: tz, start: start, end: end,
-        buckets: buckets, byType: byType, byDevice: top(byDevice), byGroup: top(byGroup), punchcard: pc,
+        buckets: buckets, daily: daily, byType: byType, byDevice: top(byDevice), byGroup: top(byGroup), punchcard: pc,
         totals: {
             seconds: round(total), active: round(active), seenSeconds: round(seen), count: count, ongoing: ongoing,
             median: round(median), longest: round(longest), devices: Object.keys(devices).length, users: Object.keys(users).length
