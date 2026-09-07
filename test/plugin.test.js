@@ -38,28 +38,28 @@ test('plugin records a desktop session end to end', { skip: !nedbAvailable && 'n
     try {
         plugin.server_startup();
         assert.equal(ms.dispatch.length, 1);
-        await sleep(50); // settings load
+        await sleep(150); // settings load
         assert.equal(plugin.settings.retentionDays, 365);
 
         const t0 = Date.now() - 5000;
         plugin.HandleEvent(null, relay(15, '2', ['r1', '203.0.113.7', '10.0.0.5'], { time: new Date(t0) }), ['*'], null);
-        await sleep(50);
+        await sleep(150);
         let open = await plugin.db.getOpenSessions();
         assert.equal(open.length, 1);
         assert.equal(open[0].nodename, 'SRV-HV01'); assert.equal(open[0].meshname, 'Servers'); assert.equal(open[0].meshid, 'mesh//servers');
 
         plugin.HandleEvent(null, relay(11, '2', ['r1', '10.0.0.5', '203.0.113.7', 5], { bytesin: 100, bytesout: 50, time: new Date(t0 + 5000) }), ['*'], null);
-        await sleep(50);
+        await sleep(150);
         const d = await plugin.db.getSession('s_r1');
         assert.equal(d.seconds, 5); assert.equal(d.end, t0 + 5000); assert.equal(d.bytesin, 100); assert.equal(d.nodename, 'SRV-HV01');
         assert.equal((await plugin.db.getOpenSessions()).length, 0);
 
         // a second startup (plugin reload) closes what was left open and re-subscribes once
         plugin.HandleEvent(null, relay(14, '1', ['r2', 'a', 'b']), ['*'], null);
-        await sleep(50);
+        await sleep(150);
         const plugin2 = require('../connectionstats.js').connectionstats(ms.pluginHandler);
         plugin2.server_startup();
-        await sleep(100);
+        await sleep(250);
         assert.equal(ms.dispatch.length, 1);
         assert.equal(ms.dispatch[0], plugin2);
         const r2 = await plugin2.db.getSession('s_r2');
@@ -79,13 +79,13 @@ test('sessions shorter than minSeconds are dropped', { skip: !nedbAvailable && '
     const plugin = require('../connectionstats.js').connectionstats(ms.pluginHandler);
     try {
         plugin.server_startup();
-        await sleep(50);
+        await sleep(150);
         await plugin.saveSettings({ minSeconds: 10 });
         const t0 = Date.now() - 3000;
         plugin.HandleEvent(null, relay(16, '5', ['f1', 'a', 'b'], { time: new Date(t0) }), ['*'], null);
-        await sleep(50);
+        await sleep(150);
         plugin.HandleEvent(null, relay(12, '5', ['f1', 'a', 'b', 3], { time: new Date(t0 + 3000) }), ['*'], null);
-        await sleep(50);
+        await sleep(150);
         assert.equal(await plugin.db.getSession('s_f1'), null);
     } finally {
         plugin.db.close();

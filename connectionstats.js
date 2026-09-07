@@ -20,6 +20,7 @@ module.exports.connectionstats = function (parent) {
     obj.events = require(__dirname + '/events.js');
     obj.aggregate = require(__dirname + '/aggregate.js');
     obj.activity = require(__dirname + '/activity.js');
+    obj.exporter = require(__dirname + '/export.js');
     obj.tracker = new obj.activity.Tracker(300);
     obj.perms = new (require(__dirname + '/permissions.js').Permissions)(obj.meshServer);
 
@@ -457,8 +458,50 @@ module.exports.connectionstats = function (parent) {
         });
     };
 
+    // Streams the filtered sessions (or the bucket totals) as CSV or JSON under the same
+    // permission check as the page. Sessions are read in pages of 500 so a year never sits in memory.
+    obj.apiExport = function (req, res, user) {
+        var q = req.query, p = obj.parseQuery(q);
+        var format = (q.format == 'json') ? 'json' : 'csv', what = (q.what == 'buckets') ? 'buckets' : 'sessions';
+        var meta = { scope: p.scope, scopeName: (typeof q.scopename == 'string') ? q.scopename.substring(0, 60) : null, start: p.start, end: p.end, bucket: p.bucket, tz: p.tz, user: user.name || user._id, version: PLUGIN_VERSION, types: p.types, users: p.userids, guests: p.includeGuests, now: Date.now() };
+        return obj.perms.filterFor(user, p).then(function (f) {
+            if (f == null) { res.status(403).json({ error: 'Not allowed to see this scope' }); return; }
+            var name = obj.exporter.fileName(meta, what, format);
+            res.set('Content-Disposition', 'attachment; filename="' + name + '"');
+            res.set('Cache-Control', 'no-store');
+            if (what == 'buckets') {
+                return obj.db.findSessions(f).then(function (rows) {
+                    var agg = obj.aggregate.aggregate(rows, { start: p.start, end: p.end, bucket: p.bucket, tz: p.tz });
+                    var recs = obj.exporter.bucketRecords(agg, p.tz);
+                    if (format == 'json') { res.set('Content-Type', 'application/json; charset=utf-8'); res.send(JSON.stringify({ meta: meta, buckets: recs }, null, 1)); return; }
+                    res.set('Content-Type', 'text/csv; charset=utf-8');
+                    var out = '\ufeff' + obj.exporter.headerLine(meta) + obj.exporter.csvRow(obj.exporter.BUCKET_COLUMNS);
+                    recs.forEach(function (r) { out += obj.exporter.csvRow(obj.exporter.BUCKET_COLUMNS.map(function (c) { return r[c]; })); });
+                    res.send(out);
+                });
+            }
+            var now = Date.now(), first = true, page = 500;
+            if (format == 'json') { res.set('Content-Type', 'application/json; charset=utf-8'); res.write('{"meta":' + JSON.stringify(meta) + ',"sessions":['); }
+            else { res.set('Content-Type', 'text/csv; charset=utf-8'); res.write('\ufeff' + obj.exporter.headerLine(meta) + obj.exporter.csvRow(obj.exporter.SESSION_COLUMNS)); }
+            var step = function (skip) {
+                return obj.db.listSessions(f, { skip: skip, limit: page }).then(function (list) {
+                    var chunk = '';
+                    list.rows.forEach(function (d) {
+                        if (format == 'json') { chunk += (first ? '' : ',') + '\n' + JSON.stringify(obj.exporter.sessionRecord(d, p.tz, now)); first = false; }
+                        else chunk += obj.exporter.sessionCsvRow(d, p.tz, now);
+                    });
+                    if (chunk) res.write(chunk);
+                    if (list.rows.length < page || skip + page >= 200000) return null;
+                    return step(skip + page);
+                });
+            };
+            return step(0).then(function () { res.end(format == 'json' ? '\n]}' : ''); });
+        }).catch(function (e) { console.log('CONNSTATS: export error: ' + (e && e.stack ? e.stack : e)); try { res.end(); } catch (e2) { } });
+    };
+
     obj.handleApi = function (req, res, user) {
         var api = String(req.query.api);
+        if (api == 'export') { obj.apiExport(req, res, user); return; }
         var work;
         if (api == 'query') work = obj.apiQuery(user, req.query);
         else if (api == 'sessions') work = obj.apiSessions(user, req.query);
