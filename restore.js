@@ -240,7 +240,7 @@ function readMongoArchive(stream, onDoc, bson) {
                     if (doc.db != null && doc.collection != null && (doc.EOF != null || doc.CRC != null)) { ns = doc; continue; }
                     ns = { collection: '?' };   // no header (should not happen); treat as data
                 }
-                if (ns.collection == 'events') onDoc(doc);
+                if (ns.collection == 'events' || doc.type == 'node' || doc.type == 'mesh') onDoc(doc);
             }
         }
         stream.on('data', function (c) {
@@ -415,10 +415,11 @@ function importZip(file, onDoc, st) {
 }
 
 // Read every relay event out of `file` (any supported format). Calls onEvent(doc) with the
-// normalised event and updates st.scanned / st.file. Resolves when the file is fully read.
-function readFile(file, want, onEvent, st) {
+// normalised event and updates st.scanned / st.file. Optional onRecord receives records
+// including MongoDB node/mesh metadata. Resolves when the file is fully read.
+function readFile(file, want, onEvent, st, onRecord) {
     st = st || {};
-    var onDoc = function (d) { st.scanned = (st.scanned || 0) + 1; var e = relayEvent(d, want); if (e != null) onEvent(e); };
+    var onDoc = function (d) { if (onRecord) onRecord(d); st.scanned = (st.scanned || 0) + 1; var e = relayEvent(d, want); if (e != null) onEvent(e); };
     return readHead(file, 4096).then(function (head) {
         var kind = sniff(head);
         if (kind == 'zip') return importZip(file, onDoc, st);

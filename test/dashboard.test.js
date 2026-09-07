@@ -64,3 +64,26 @@ test('custom dates round trip and malformed saved data does not break boot', () 
     assert.equal(bad.cs.state.preset, 'week');
     assert.equal(bad.cs.state.bucket, 'auto');
 });
+
+test('chart hover and keyboard focus show an immediate tooltip and clear it on exit', () => {
+    const d = dashboard();
+    const attrs = { 'aria-label': '7 September 2026, Desktop, 5m' };
+    const bar = { dataset: { i: '0' }, closest: () => bar, getAttribute: k => attrs[k],
+        setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: k => { delete attrs[k]; },
+        getBoundingClientRect: () => ({ left: 10, top: 20, width: 30 }) };
+    let tip;
+    d.document.createElement = () => ({ style: {}, setAttribute() {}, offsetWidth: 180, offsetHeight: 60 });
+    d.document.body = { appendChild: el => { tip = el; } };
+    d.handlers.pointerover({ target: bar, clientX: 30, clientY: 40 });
+    assert.equal(tip.hidden, false);
+    assert.match(tip.textContent, /Desktop, 5m/);
+    assert.match(tip.textContent, /Click to filter sessions/);
+    assert.equal(attrs['aria-describedby'], 'cs-chart-tip');
+    d.handlers.pointerout();
+    assert.equal(tip.hidden, true);
+    assert.equal(attrs['aria-describedby'], undefined);
+    d.handlers.focusin({ target: bar });
+    assert.equal(tip.hidden, false);
+    d.handlers.focusout();
+    assert.equal(tip.hidden, true);
+});

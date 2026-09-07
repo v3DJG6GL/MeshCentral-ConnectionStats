@@ -15,8 +15,9 @@ const MAX_DAYS = 400;
 const EMPTY_WINDOWS_TO_STOP = 4;
 
 // Pair raw relay events (any order) and store every closed session the store does not have yet.
-// Updates st.found / st.imported / st.skipped. `source` marks where the sessions came from.
-function importEvents(ctx, all, st, source) {
+// Updates st.found / st.imported / st.skipped. Backup records also fill missing names
+// on existing sessions (st.updated), preserving their timing and activity data.
+function importEvents(ctx, all, st, source, records) {
     all.sort(function (a, b) { return (+new Date(a.time)) - (+new Date(b.time)); });
     var pairer = new ctx.events.Pairer(), closed = [];
     all.forEach(function (ev) {
@@ -30,12 +31,22 @@ function importEvents(ctx, all, st, source) {
     closed.forEach(function (doc) {
         work = work.then(function () {
             return ctx.db.getSession(doc._id).then(function (existing) {
-                if (existing != null) { st.skipped++; return null; }
-                doc.source = source;
+                if (existing != null) {
+                    st.skipped++;
+                    if (!records || existing.nodeid != doc.nodeid) return null;
+                    doc = Object.assign({}, existing);
+                }
+                if (!existing) doc.source = source;
                 return new Promise(function (resolve) {
                     ctx.resolveNames(doc.nodeid, function (names) {
-                        doc.meshid = names.meshid; doc.nodename = names.nodename; doc.meshname = names.meshname;
-                        ctx.db.upsertSession(doc).then(function () { st.imported++; resolve(); }, function () { resolve(); });
+                        var node = records && records[doc.nodeid];
+                        var meshid = doc.meshid || names.meshid || (node && node.meshid) || null;
+                        var mesh = records && records[meshid];
+                        doc.nodename = doc.nodename || names.nodename || (node && node.name) || null;
+                        doc.meshname = doc.meshname || (meshid == names.meshid && names.meshname) || (mesh && mesh.name) || null;
+                        doc.meshid = meshid;
+                        if (existing && doc.nodename == existing.nodename && doc.meshname == existing.meshname && doc.meshid == existing.meshid) { resolve(); return; }
+                        ctx.db.upsertSession(doc).then(function () { if (!existing) st.imported++; else st.updated = (st.updated || 0) + 1; resolve(); }, function () { resolve(); });
                     });
                 });
             });
@@ -49,9 +60,13 @@ function importEvents(ctx, all, st, source) {
 function runFile(ctx, file, opts) {
     var st = { running: true, source: 'backup', label: (opts && opts.label) || file, file: null, files: 0, startedAt: Date.now(), finishedAt: null, scanned: 0, relay: 0, found: 0, imported: 0, skipped: 0, error: null };
     var msgids = ctx.events.START_MSGIDS.concat(ctx.events.END_MSGIDS);
-    var all = [];
-    st.promise = require(__dirname + '/restore.js').readFile(file, msgids, function (ev) { all.push(ev); st.relay++; }, st)
-    .then(function () { st.phase = 'importing'; return importEvents(ctx, all, st, 'backup'); })
+    var all = [], records = Object.create(null);
+    st.promise = require(__dirname + '/restore.js').readFile(file, msgids, function (ev) { all.push(ev); st.relay++; }, st, function (d) {
+        if (d && (d.type == 'node' || d.type == 'mesh') && typeof d._id == 'string' && d._id.indexOf(d.type + '/') == 0) {
+            records[d._id] = { name: typeof d.name == 'string' ? d.name : null, meshid: typeof d.meshid == 'string' ? d.meshid : null };
+        }
+    })
+    .then(function () { st.phase = 'importing'; return importEvents(ctx, all, st, 'backup', records); })
     .then(function () { st.running = false; st.finishedAt = Date.now(); ctx.log('backup import ' + st.label + ': read ' + st.scanned + ' records, ' + st.relay + ' relay events, ' + st.found + ' sessions, imported ' + st.imported + ', skipped ' + st.skipped); return st; })
     .catch(function (e) { st.running = false; st.finishedAt = Date.now(); st.error = (e && e.message) || String(e); ctx.log('backup import error: ' + st.error); return st; })
     .finally(function () { if (opts && opts.cleanup) { try { require('fs').unlinkSync(file); } catch (e) { } } });

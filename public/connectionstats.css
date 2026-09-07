@@ -53,10 +53,13 @@ button { font: inherit; }
 .cs .gl { stroke: var(--grid); stroke-width: 1; }
 .cs .bar { cursor: pointer; }
 .cs .bar.dim { opacity: .3; }
+.cs .bar:hover, .cs .bar:focus-visible { opacity: 1; filter: brightness(1.2); stroke: var(--t); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.cs-chart-tip { position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 16px)); padding: 8px 10px; border: 1px solid var(--axis); border-radius: 4px; background: var(--p); color: var(--t); box-shadow: 0 3px 12px #0004; white-space: pre-line; pointer-events: none; }
+@media print { .cs-chart-tip { display: none; } }
 .cs .pc { cursor: pointer; outline: none; }
 .cs .pc.dim { opacity: .25; }
 .cs .pc:focus-visible circle, .cs .pc:focus-visible path { stroke: var(--focus); stroke-width: 2; }
-.cs .prev { fill: none; stroke: var(--axis); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.cs .prev { pointer-events: none; fill: none; stroke: var(--axis); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .cs-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--m); font-size: 11px; }
 .cs-legend span { display: inline-flex; gap: 5px; align-items: center; }
 .cs-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }

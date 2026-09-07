@@ -134,7 +134,7 @@ test('mongodump archive: prelude, namespace slices, other collections ignored, g
     const f = tmp('meshcentral-mongodump-2026.archive', zlib.gzipSync(buf));
     const st = {};
     checkPair(await collect(on => R.readFile(f, WANT, on, st)));
-    assert.equal(st.scanned, 4);   // only the events collection is counted
+    assert.equal(st.scanned, 5);   // events plus device metadata
 });
 
 let DatabaseSync = null;
@@ -195,4 +195,41 @@ test('runFile pairs, skips known sessions and marks the source', async () => {
     const st2 = require('../backfill.js').runFile(ctx, tmp('nope.bin', 'hello'), {});
     await st2.promise;
     assert.match(st2.error, /Unrecognised/);
+});
+
+test('2023 MongoDB backup recovers device names and repairs an earlier import without replacing session data', { skip: (!bson || !yauzl) && 'MongoDB/zip dependencies unavailable' }, async () => {
+    // Metadata follows the events, as collection slices may arrive in either order.
+    const dump = archive({ events: RAW.map(d => ({ ...d, time: new Date(d.time) })), meshcentral: [
+        { type: 'node', _id: 'node//abc', name: 'Old workstation', meshid: 'mesh//old', secret: 'not retained' },
+        { type: 'mesh', _id: 'mesh//old', name: 'Old office' }
+    ] });
+    const file = tmp('meshcentral-autobackup-2023-11-14-20-32.zip', zip([
+        { name: 'mongodump-2023-11-14-20-32.archive', data: dump }
+    ]));
+    const store = new Map();
+    const ctx = { events, log() {}, resolveNames: (_, cb) => cb({}), db: {
+        getSession: async id => store.get(id), upsertSession: async d => store.set(d._id, d)
+    } };
+    try {
+        const first = require('../backfill.js').runFile(ctx, file, {});
+        await first.promise;
+        assert.equal(first.error, null);
+        assert.equal(first.imported, 1);
+        assert.equal(store.get('s_rly1').nodename, 'Old workstation');
+        assert.equal(store.get('s_rly1').meshname, 'Old office');
+        assert.equal(store.get('s_rly1').meshid, 'mesh//old');
+        const previous = { ...store.get('s_rly1'), nodename: null, meshname: null, meshid: null, active: 42, source: 'live' };
+        store.set('s_rly1', previous);
+        const repair = require('../backfill.js').runFile(ctx, file, {});
+        await repair.promise;
+        assert.equal(repair.error, null);
+        assert.equal(repair.imported, 0);
+        assert.equal(repair.updated, 1);
+        assert.equal(store.size, 1);
+        assert.deepEqual(store.get('s_rly1'), { ...previous, nodename: 'Old workstation', meshname: 'Old office', meshid: 'mesh//old' });
+        const again = require('../backfill.js').runFile(ctx, file, {});
+        await again.promise;
+        assert.equal(again.updated || 0, 0);
+        assert.equal(again.skipped, 1);
+    } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }
 });

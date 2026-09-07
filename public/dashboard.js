@@ -228,7 +228,7 @@
             TYPES.forEach(function (t) {
                 var v = b.by[t.k] || 0; if (!v) return; var h = (H - T - B) * (v / unit) / maxU; y -= h;
                 var dim = sel && !(sel.i == i && sel.t == t.k);
-                s += '<rect class="bar' + (dim ? ' dim' : '') + '" data-i="' + i + '" data-t="' + t.k + '" tabindex="0" role="button" aria-label="' + esc(longLabel(b, bucket)) + ', ' + t.n + ', ' + fmtDur(v) + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(h, 0.5).toFixed(1) + '" fill="' + t.c + '"><title>' + esc(longLabel(b, bucket)) + ', ' + t.n + ', ' + fmtDur(v) + '</title></rect>';
+                s += '<rect class="bar' + (dim ? ' dim' : '') + '" data-i="' + i + '" data-t="' + t.k + '" tabindex="0" role="button" aria-label="' + esc(longLabel(b, bucket)) + ', ' + t.n + ', ' + fmtDur(v) + '" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(h, 0.5).toFixed(1) + '" fill="' + t.c + '"></rect>';
             });
             if (i % every == 0) s += '<text class="ax" x="' + (L + iw * i + iw / 2) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(label(b, bucket)) + '</text>';
         });
@@ -403,7 +403,7 @@
         var rs = RS || { running: false }, busy = !!rs.running;
         var text;
         if (busy) text = 'Importing ' + (rs.label || '') + (rs.file && rs.file != rs.label ? ' (' + rs.file + ')' : '') + ': ' + (rs.scanned || 0) + ' records read, ' + (rs.relay || 0) + ' relay events' + (rs.phase == 'importing' ? ', ' + (rs.found || 0) + ' sessions found, ' + (rs.imported || 0) + ' imported so far' : '') + '.';
-        else if (rs.finishedAt) text = 'Last import ' + fmtDT(rs.finishedAt) + ' from ' + (rs.label || 'file') + ': ' + (rs.error ? 'failed. ' + rs.error : (rs.scanned || 0) + ' records read, ' + (rs.relay || 0) + ' relay events, ' + (rs.found || 0) + ' sessions found, ' + (rs.imported || 0) + ' imported, ' + (rs.skipped || 0) + ' already known.');
+        else if (rs.finishedAt) text = 'Last import ' + fmtDT(rs.finishedAt) + ' from ' + (rs.label || 'file') + ': ' + (rs.error ? 'failed. ' + rs.error : (rs.scanned || 0) + ' records read, ' + (rs.relay || 0) + ' relay events, ' + (rs.found || 0) + ' sessions found, ' + (rs.imported || 0) + ' imported, ' + (rs.skipped || 0) + ' already known' + (rs.updated ? ', ' + rs.updated + ' names repaired' : '') + '.');
         else text = RSMSG || '';
         var h = '<div class="cs-card"><h5>Import from a backup</h5>';
         h += '<p class="cs-note" style="margin:0">Relay events older than MeshCentral\'s limit are gone from its database, but its backups still hold them. The plugin reads the events file or database dump inside a backup (meshcentral-events.db, a mongodump archive, a mysqldump or pg_dump file, a SQLite copy) and adds the sessions it does not have yet. Go through your backups oldest first; running one twice is harmless. A password-protected backup has to be unzipped first, then import the file from inside it.</p>';
@@ -449,6 +449,7 @@
             '<hr><button role="menuitem" data-act="copylink">Copy link to this view</button></div>';
     }
     function render() {
+        hideChartTip();
         if (BOOT.view == 'settings') { root.className = 'cs'; root.innerHTML = settingsPage(); return; }
         // Native date inputs emit change for individual year digits. Keep the focused
         // input intact during background refreshes so its editing segment is not lost.
@@ -509,6 +510,37 @@
     try { if (!COMPACT && window.parent !== window) { fitFrame(); window.parent.addEventListener('resize', function () { setTimeout(fitFrame, 0); }); setTimeout(fitFrame, 500); } } catch (e) { }
 
     // ---------- events ----------
+    var chartTip = null, tipBar = null;
+    function hideChartTip() {
+        if (chartTip) chartTip.hidden = true;
+        if (tipBar) tipBar.removeAttribute('aria-describedby');
+        tipBar = null;
+    }
+    function showChartTip(ev) {
+        var bar = ev.target.closest && ev.target.closest('.bar');
+        if (!bar) { hideChartTip(); return; }
+        if (!chartTip) {
+            chartTip = document.createElement('div'); chartTip.id = 'cs-chart-tip';
+            chartTip.className = 'cs-chart-tip'; chartTip.setAttribute('role', 'tooltip');
+            document.body.appendChild(chartTip);
+        }
+        if (tipBar && tipBar !== bar) tipBar.removeAttribute('aria-describedby');
+        tipBar = bar;
+        var b = DATA && DATA.aggregate.buckets[Number(bar.dataset.i)];
+        chartTip.textContent = bar.getAttribute('aria-label') + (b ? '\nPeriod total: ' + fmtDur(b.tot) : '') + '\nClick to filter sessions';
+        chartTip.hidden = false; bar.setAttribute('aria-describedby', chartTip.id);
+        var rect = bar.getBoundingClientRect();
+        var x = ev.clientX == null ? rect.left + rect.width / 2 : ev.clientX;
+        var y = ev.clientY == null ? rect.top : ev.clientY;
+        chartTip.style.left = Math.max(8, Math.min(x + 12, window.innerWidth - chartTip.offsetWidth - 8)) + 'px';
+        chartTip.style.top = Math.max(8, Math.min(y + 12, window.innerHeight - chartTip.offsetHeight - 8)) + 'px';
+    }
+    root.addEventListener('pointerover', showChartTip);
+    root.addEventListener('pointermove', showChartTip);
+    root.addEventListener('pointerout', hideChartTip);
+    root.addEventListener('focusin', showChartTip);
+    root.addEventListener('focusout', hideChartTip);
+    window.addEventListener('scroll', hideChartTip, true);
     root.addEventListener('submit', function (ev) { if (ev.target.id == 'cs-settings') { ev.preventDefault(); saveSettingsForm(ev.target); } });
     root.addEventListener('click', function (ev) {
         var t = ev.target, el;
@@ -569,7 +601,7 @@
     }
     root.addEventListener('keydown', function (ev) {
         if (ev.key == 'Enter' && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); ev.target.blur(); applyDates(); return; }
-        if (ev.key == 'Escape') { if (MENU) { MENU = false; render(); } else if (S.sel || S.pc) { S.sel = null; S.pc = null; loadList(0); } }
+        if (ev.key == 'Escape') { hideChartTip(); if (MENU) { MENU = false; render(); } else if (S.sel || S.pc) { S.sel = null; S.pc = null; loadList(0); } }
         if ((ev.key == 'Enter' || ev.key == ' ') && ev.target.classList && (ev.target.classList.contains('bar') || ev.target.classList.contains('pc'))) { ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
     window.addEventListener('hashchange', function () { readHash(); if (S.preset != 'custom') applyPreset(); load(); });

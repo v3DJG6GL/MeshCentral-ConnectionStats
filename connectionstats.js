@@ -353,7 +353,7 @@ module.exports.connectionstats = function (parent) {
     obj.restoreInfo = function () {
         var st = obj.restoreStatus;
         if (st == null) return { running: false };
-        return { running: st.running, label: st.label, file: st.file, files: st.files, phase: st.phase, startedAt: st.startedAt, finishedAt: st.finishedAt, scanned: st.scanned, relay: st.relay, found: st.found, imported: st.imported, skipped: st.skipped, error: st.error };
+        return { running: st.running, label: st.label, file: st.file, files: st.files, phase: st.phase, startedAt: st.startedAt, finishedAt: st.finishedAt, scanned: st.scanned, relay: st.relay, found: st.found, imported: st.imported, skipped: st.skipped, updated: st.updated || 0, error: st.error };
     };
     // A file uploaded from the settings page, parsed with the multiparty module MeshCentral uses
     // for its own uploads, written to a temp file and removed after the import.
