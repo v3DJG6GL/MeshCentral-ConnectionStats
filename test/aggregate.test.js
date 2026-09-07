@@ -78,7 +78,9 @@ test('autoBucket and previousRange', () => {
 test('punchcard, devices, groups and median', () => {
     const mk = (h, sec, node, mesh) => ({ nodeid: node, nodename: node.toUpperCase(), meshid: mesh, meshname: mesh, type: 'desktop', start: L(2026, 9, 7, h), end: L(2026, 9, 7, h) + sec * 1000 });
     const r = ag.aggregate([mk(9, 600, 'a', 'g1'), mk(9, 1200, 'b', 'g1'), mk(14, 300, 'a', 'g1')], { start: L(2026, 9, 7), end: L(2026, 9, 8), bucket: 'day', tz: TZ });
-    assert.equal(r.punchcard[1][9], 1800); assert.equal(r.punchcard[1][14], 300);
+    assert.equal(r.punchcard[1][9].tot, 1800); assert.equal(r.punchcard[1][9].by.desktop, 1800); assert.equal(r.punchcard[1][14].tot, 300);
+    assert.equal(r.byProtocol['desktop:0'], 2100);
+    assert.deepEqual(ag.startCell({ start: L(2026, 9, 6, 23) }, L(2026, 9, 7), TZ), { wd: 1, h: 0 });
     assert.equal(r.byDevice[0].id, 'b'); assert.equal(r.byDevice[1].seconds, 900);
     assert.equal(r.byGroup[0].name, 'g1'); assert.equal(r.byGroup[0].sessions, 3);
     assert.equal(r.totals.median, 600); assert.equal(r.totals.devices, 2);

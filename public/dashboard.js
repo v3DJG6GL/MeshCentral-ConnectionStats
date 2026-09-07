@@ -19,6 +19,11 @@
         { k: 'other', n: 'Other', c: '#BBBBBB' }
     ];
     var TYPE = {}; TYPES.forEach(function (t) { TYPE[t.k] = t; });
+    // MeshCentral's relay protocol numbers. Anything that is not one of the named types lands in
+    // "Other"; the number tells what it was. 0 means the relay was opened without a protocol,
+    // which is what MeshCentral Router and other port tunnels do.
+    var PROTO = { 0: 'Router or port tunnel', 1: 'Terminal', 2: 'Desktop', 5: 'Files', 6: 'PowerShell', 7: 'Plugin', 8: 'Root shell', 9: 'Root PowerShell', 10: 'RDP relay', 11: 'SSH relay', 12: 'VNC relay', 13: 'SFTP relay', 14: 'Web-TCP relay', 100: 'Intel AMT', 101: 'Intel AMT', 200: 'Messenger', 201: 'Web RDP', 202: 'Web SSH', 203: 'Web SFTP' };
+    function protoName(p) { p = Number(p) || 0; return PROTO[p] || ('protocol ' + p); }
     var DAY = 86400000;
     var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -75,7 +80,7 @@
     // ---------- state ----------
     var S = {
         scope: BOOT.scope || 'all', types: {}, users: [], preset: 'week', start: 0, end: 0, bucket: 'auto',
-        compare: true, guests: false, sel: null, skip: 0, limit: COMPACT ? 8 : 12
+        compare: true, guests: false, sel: null, pc: null, skip: 0, limit: COMPACT ? 8 : 12
     };
     TYPES.forEach(function (t) { S.types[t.k] = true; });
     var META = null, DATA = null, LIST = null, DAYLIST = null, ERR = null, LOADING = false, MENU = false;
@@ -116,7 +121,7 @@
         var qp = queryParams(); qp.limit = S.limit;
         var work = [get(API + '&api=query&' + qs(qp))];
         get(API + '&api=query&' + qs(qp)).then(function (d) {
-            DATA = d; LIST = d.sessions; S.skip = 0; S.sel = null; DAYLIST = null;
+            DATA = d; LIST = d.sessions; S.skip = 0; S.sel = null; S.pc = null; DAYLIST = null;
             if (d.aggregate.bucket == 'hour') {
                 var lp = queryParams(); lp.limit = 500;
                 return get(API + '&api=sessions&' + qs(lp)).then(function (l) { DAYLIST = l.rows; });
@@ -126,6 +131,7 @@
     function loadList(skip) {
         var qp = queryParams(); qp.skip = skip; qp.limit = S.limit;
         if (S.sel) { var b = DATA.aggregate.buckets[S.sel.i]; qp.start = b.s; qp.end = b.e; qp.types = S.sel.t; }
+        if (S.pc) { qp.wd = S.pc.wd; qp.hour = S.pc.h; }
         get(API + '&api=sessions&' + qs(qp)).then(function (l) { LIST = l; S.skip = skip; render(); }).catch(function (e) { ERR = e.message; render(); });
     }
 
@@ -163,7 +169,13 @@
         var s = '<svg viewBox="0 0 96 96" role="img" aria-label="Share by type"><circle cx="48" cy="48" r="' + r + '" fill="none" stroke="var(--r2)" stroke-width="12"/>';
         TYPES.forEach(function (t) { var v = a.byType[t.k] || 0; if (!v) return; var f = v / tot; s += '<circle cx="48" cy="48" r="' + r + '" fill="none" stroke="' + t.c + '" stroke-width="12" stroke-dasharray="' + (f * c).toFixed(2) + ' ' + c.toFixed(2) + '" stroke-dashoffset="' + (-off * c).toFixed(2) + '" transform="rotate(-90 48 48)"><title>' + t.n + ' ' + Math.round(f * 100) + '%</title></circle>'; off += f; items.push({ t: t, v: v, f: f }); });
         s += '</svg>'; items.sort(function (x, y) { return y.v - x.v; });
-        return '<div class="cs-donut">' + s + '<ul>' + items.map(function (it) { return '<li><i style="background:' + it.t.c + '"></i>' + it.t.n + '<b>' + fmtDur(it.v) + ' <small>' + Math.round(it.f * 100) + '%</small></b></li>'; }).join('') + '</ul></div>';
+        var otherParts = Object.keys(a.byProtocol || {}).filter(function (k) { return k.indexOf('other:') == 0 && a.byProtocol[k]; })
+            .sort(function (x, y) { return a.byProtocol[y] - a.byProtocol[x]; })
+            .map(function (k) { return '<span>' + esc(protoName(k.substring(6))) + ' ' + fmtDur(a.byProtocol[k]) + '</span>'; });
+        return '<div class="cs-donut">' + s + '<ul>' + items.map(function (it) {
+            var sub = (it.t.k == 'other' && otherParts.length) ? '<div class="sub">' + otherParts.join(', ') + '</div>' : '';
+            return '<li><i style="background:' + it.t.c + '"></i>' + it.t.n + '<b>' + fmtDur(it.v) + ' <small>' + Math.round(it.f * 100) + '%</small></b>' + sub + '</li>';
+        }).join('') + '</ul></div>';
     }
     function hbars(list, kind) {
         var max = list.length ? list[0].seconds : 1, s = '<div class="cs-hbars">';
@@ -175,14 +187,35 @@
         });
         return s + '</div>';
     }
-    function punchcard(pc) {
-        var max = 0; pc.forEach(function (r) { r.forEach(function (v) { max = Math.max(max, v); }); }); max = max || 1;
+    // one bubble per weekday and hour, sized by connected time and sliced by type
+    function pie(cx, cy, r, by, tot) {
+        var parts = TYPES.filter(function (t) { return by[t.k]; });
+        if (parts.length == 1) return '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + parts[0].c + '"/>';
+        var a0 = -Math.PI / 2, s = '';
+        parts.forEach(function (t, i) {
+            var f = by[t.k] / tot, a1 = a0 + Math.PI * 2 * f;
+            if (f >= 0.9999) { s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + t.c + '"/>'; return; }
+            var x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0), x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+            s += '<path d="M' + cx + ' ' + cy + 'L' + x0.toFixed(2) + ' ' + y0.toFixed(2) + 'A' + r + ' ' + r + ' 0 ' + (f > .5 ? 1 : 0) + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + 'Z" fill="' + t.c + '"/>';
+            a0 = a1;
+        });
+        return s;
+    }
+    function cellLabel(dw, hh) { return DOW[dw] + ' ' + p2(hh) + ':00 to ' + p2((hh + 1) % 24) + ':00'; }
+    function punchcard(pc, sel) {
+        var max = 0; pc.forEach(function (r) { r.forEach(function (c) { max = Math.max(max, c.tot); }); }); max = max || 1;
         var W = 760, H = 150, L = 30, T = 16, cw = (W - L) / 24, rh = (H - T) / 7;
         var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Connected time by weekday and hour of start">';
         for (var h = 0; h < 24; h += 3) s += '<text class="ax" x="' + (L + cw * h + cw / 2) + '" y="10" text-anchor="middle">' + p2(h) + '</text>';
         [1, 2, 3, 4, 5, 6, 0].forEach(function (dw, ri) {
             s += '<text class="ax" x="' + (L - 6) + '" y="' + (T + rh * ri + rh / 2 + 3.5) + '" text-anchor="end">' + DOW[dw] + '</text>';
-            for (var hh = 0; hh < 24; hh++) { var v = pc[dw][hh]; if (!v) continue; var r = 2 + Math.sqrt(v / max) * (rh / 2 - 1.5); s += '<circle cx="' + (L + cw * hh + cw / 2) + '" cy="' + (T + rh * ri + rh / 2) + '" r="' + r.toFixed(1) + '" fill="var(--nav)" opacity=".85"><title>' + DOW[dw] + ' ' + p2(hh) + ':00, ' + fmtDur(v) + '</title></circle>'; }
+            for (var hh = 0; hh < 24; hh++) {
+                var c = pc[dw][hh]; if (!c.tot) continue;
+                var r = 2 + Math.sqrt(c.tot / max) * (rh / 2 - 1.5), cx = +(L + cw * hh + cw / 2).toFixed(1), cy = +(T + rh * ri + rh / 2).toFixed(1);
+                var dim = sel && !(sel.wd == dw && sel.h == hh);
+                var tip = cellLabel(dw, hh) + ', ' + fmtDur(c.tot) + ': ' + TYPES.filter(function (t) { return c.by[t.k]; }).map(function (t) { return t.n + ' ' + fmtDur(c.by[t.k]); }).join(', ');
+                s += '<g class="pc' + (dim ? ' dim' : '') + '" data-pc="1" data-wd="' + dw + '" data-h="' + hh + '" tabindex="0" role="button" aria-label="' + esc(tip) + '"><title>' + esc(tip) + '</title>' + pie(cx, cy, +r.toFixed(1), c.by, c.tot) + '</g>';
+            }
         });
         return s + '</svg>';
     }
@@ -219,12 +252,14 @@
         var rows = list.rows || [], n = list.total || 0, s = '<div class="cs-tscroll"><table class="cs-table"><thead><tr><th>Start</th><th>Type</th><th>Device</th>' + (COMPACT ? '' : '<th>Group</th>') + '<th>Admin</th><th class="num">Duration</th><th class="num">Active</th><th class="num">Received</th><th class="num">Sent</th><th>From</th></tr></thead><tbody>';
         rows.forEach(function (x) {
             var e = x.end == null ? Date.now() : x.end, t = TYPE[x.type] || TYPE.other;
-            s += '<tr' + (x.end == null ? ' class="hl"' : '') + '><td>' + fmtDT(x.start) + '</td><td><span class="ty"><i style="background:' + t.c + '"></i>' + t.n + '</span></td><td>' + esc(x.node) + '</td>' + (COMPACT ? '' : '<td>' + esc(x.group || '') + '</td>') + '<td>' + (x.guest ? 'Guest: ' + esc(x.guest) : esc(x.user)) + '</td><td class="num">' + fmtDur((e - x.start) / 1000) + (x.end == null ? ', ongoing' : x.truncated ? ' <span title="The start or end of this session was not observed">*</span>' : '') + '</td><td class="num' + (x.active == null ? ' dim' : '') + '">' + (x.active == null ? 'no data' : fmtDur(x.active)) + '</td><td class="num">' + fmtBytes(x.bytesin) + '</td><td class="num">' + fmtBytes(x.bytesout) + '</td><td>' + esc(x.ip || '') + '</td></tr>';
+            s += '<tr' + (x.end == null ? ' class="hl"' : '') + '><td>' + fmtDT(x.start) + '</td><td><span class="ty" title="' + esc(protoName(x.protocol)) + '"><i style="background:' + t.c + '"></i>' + t.n + (x.type == 'other' ? ' <small class="dim">' + esc(protoName(x.protocol)) + '</small>' : '') + '</span></td><td>' + esc(x.node) + '</td>' + (COMPACT ? '' : '<td>' + esc(x.group || '') + '</td>') + '<td>' + (x.guest ? 'Guest: ' + esc(x.guest) : esc(x.user)) + '</td><td class="num">' + fmtDur((e - x.start) / 1000) + (x.end == null ? ', ongoing' : x.truncated ? ' <span title="The start or end of this session was not observed">*</span>' : '') + '</td><td class="num' + (x.active == null ? ' dim' : '') + '">' + (x.active == null ? 'no data' : fmtDur(x.active)) + '</td><td class="num">' + fmtBytes(x.bytesin) + '</td><td class="num">' + fmtBytes(x.bytesout) + '</td><td>' + esc(x.ip || '') + '</td></tr>';
         });
         if (!rows.length) s += '<tr><td colspan="10" class="dim">No sessions match.</td></tr>';
         s += '</tbody></table></div>';
         var pages = Math.max(1, Math.ceil(n / S.limit)), page = Math.floor(S.skip / S.limit) + 1;
-        var selTxt = S.sel ? 'Showing ' + TYPE[S.sel.t].n + ' sessions in ' + esc(longLabel(DATA.aggregate.buckets[S.sel.i], DATA.aggregate.bucket)) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a> <a href="#" data-act="zoom">Zoom in</a>' : 'Showing ' + Math.min(S.skip + rows.length, n) + ' of ' + n + ' sessions';
+        var selTxt = S.sel ? 'Showing ' + TYPE[S.sel.t].n + ' sessions in ' + esc(longLabel(DATA.aggregate.buckets[S.sel.i], DATA.aggregate.bucket)) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a> <a href="#" data-act="zoom">Zoom in</a>'
+            : S.pc ? 'Showing sessions that started ' + cellLabel(S.pc.wd, S.pc.h) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a>'
+            : 'Showing ' + Math.min(S.skip + rows.length, n) + ' of ' + n + ' sessions';
         s += '<div class="cs-foot"><span>' + selTxt + '</span><span class="pg"><button class="cs-btn" data-act="prev" ' + (page <= 1 ? 'disabled' : '') + '>&#8249;</button> Page ' + page + ' of ' + pages + ' <button class="cs-btn" data-act="next" ' + (page >= pages ? 'disabled' : '') + '>&#8250;</button></span></div>';
         return s;
     }
@@ -363,7 +398,7 @@
                 }
                 if (a.bucket == 'hour') h += '<div class="cs-card"><h5>Sessions in this range<span>one row per device, hatched is ongoing</span></h5>' + timeline(DAYLIST || [], a.start, a.end) + '</div>';
                 else if (a.daily) h += '<div class="cs-card"><h5>Every day<span>darker is more time</span></h5><div class="cs-cal">' + calendar(a.daily, a.start, a.end) + '</div></div>';
-                else if (!COMPACT) h += '<div class="cs-card"><h5>When you connect<span>by weekday and hour of start</span></h5>' + punchcard(a.punchcard) + '</div>';
+                else if (!COMPACT) h += '<div class="cs-card"><h5>When you connect<span>by weekday and hour of start, click a bubble to filter the list</span></h5>' + punchcard(a.punchcard, S.pc) + '</div>';
             }
             h += '<div class="cs-card"><h5>Sessions' + (t.ongoing ? '<span class="cs-live">' + t.ongoing + ' ongoing, counted up to now</span>' : '') + '</h5>' + table(LIST || { rows: [], total: 0 }) + '</div>';
             h += '<div class="cs-note">* start or end not observed (server restart). Active time is measured from your input in the Desktop, Terminal and Files views; sessions from other clients show no data.</div>';
@@ -399,9 +434,10 @@
         if ((el = t.closest('[data-scope-to]'))) { ev.preventDefault(); S.scope = el.dataset.scopeTo; load(); return; }
         if (t.closest('[data-compare]')) { S.compare = !S.compare; load(); return; }
         if (t.closest('[data-guests]')) { S.guests = !S.guests; load(); return; }
-        if (t.classList && t.classList.contains('bar')) { var i = +t.dataset.i, ty = t.dataset.t; S.sel = (S.sel && S.sel.i == i && S.sel.t == ty) ? null : { i: i, t: ty }; loadList(0); return; }
+        if (t.classList && t.classList.contains('bar')) { var i = +t.dataset.i, ty = t.dataset.t; S.sel = (S.sel && S.sel.i == i && S.sel.t == ty) ? null : { i: i, t: ty }; S.pc = null; loadList(0); return; }
+        if ((el = t.closest('[data-pc]'))) { var wd = +el.dataset.wd, hr = +el.dataset.h; S.pc = (S.pc && S.pc.wd == wd && S.pc.h == hr) ? null : { wd: wd, h: hr }; S.sel = null; loadList(0); return; }
         var act = (el = t.closest('[data-act]')) ? el.dataset.act : null;
-        if (act == 'clear') { ev.preventDefault(); S.sel = null; loadList(0); return; }
+        if (act == 'clear') { ev.preventDefault(); S.sel = null; S.pc = null; loadList(0); return; }
         if (act == 'zoom') { ev.preventDefault(); if (S.sel) { var b = DATA.aggregate.buckets[S.sel.i]; S.start = b.s; S.end = b.e; S.preset = 'custom'; S.bucket = 'auto'; load(); } return; }
         if (act == 'prev') { loadList(Math.max(0, S.skip - S.limit)); return; }
         if (act == 'next') { loadList(S.skip + S.limit); return; }
@@ -426,8 +462,8 @@
         }
     });
     root.addEventListener('keydown', function (ev) {
-        if (ev.key == 'Escape') { if (MENU) { MENU = false; render(); } else if (S.sel) { S.sel = null; loadList(0); } }
-        if ((ev.key == 'Enter' || ev.key == ' ') && ev.target.classList && ev.target.classList.contains('bar')) { ev.preventDefault(); ev.target.click(); }
+        if (ev.key == 'Escape') { if (MENU) { MENU = false; render(); } else if (S.sel || S.pc) { S.sel = null; S.pc = null; loadList(0); } }
+        if ((ev.key == 'Enter' || ev.key == ' ') && ev.target.classList && (ev.target.classList.contains('bar') || ev.target.classList.contains('pc'))) { ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
     window.addEventListener('hashchange', function () { readHash(); if (S.preset != 'custom') applyPreset(); load(); });
 

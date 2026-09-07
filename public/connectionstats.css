@@ -53,6 +53,9 @@ button { font: inherit; }
 .cs .gl { stroke: var(--grid); stroke-width: 1; }
 .cs .bar { cursor: pointer; }
 .cs .bar.dim { opacity: .3; }
+.cs .pc { cursor: pointer; outline: none; }
+.cs .pc.dim { opacity: .25; }
+.cs .pc:focus-visible circle, .cs .pc:focus-visible path { stroke: var(--focus); stroke-width: 2; }
 .cs .prev { fill: none; stroke: var(--axis); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .cs-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--m); font-size: 11px; }
 .cs-legend span { display: inline-flex; gap: 5px; align-items: center; }
@@ -70,6 +73,9 @@ button { font: inherit; }
 .cs-donut li i { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
 .cs-donut li b { margin-left: auto; font-weight: normal; white-space: nowrap; }
 .cs-donut li small { color: var(--m); }
+.cs-donut li { flex-wrap: wrap; }
+.cs-donut li .sub { flex-basis: 100%; padding-left: 15px; color: var(--m); font-size: 10px; line-height: 1.3; }
+.cs-table .ty small { font-size: 10px; color: var(--m); }
 .cs-tl .row { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 11px; min-height: 18px; }
 .cs-tl .row .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cs-tl .row .tr { position: relative; height: 12px; background: var(--r2); border-radius: 2px; }
@@ -116,5 +122,5 @@ a.cs-btn { text-decoration: none; display: inline-block; }
   body { background: #fff; padding: 0; }
   .cs { border: 0; }
   .cs-bar, .cs-foot .pg, .cs-menu { display: none !important; }
-  .cs .bar { cursor: default; }
+  .cs .bar, .cs .pc { cursor: default; }
 }

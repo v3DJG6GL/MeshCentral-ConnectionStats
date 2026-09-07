@@ -8,7 +8,7 @@ How long you were remoted into each device, split by Desktop, Terminal, Files an
 
 | Where | What |
 | --- | --- |
-| My Server > Plugins > Connection Stats | The full dashboard: scope (all devices, a group, a device), connection type chips, admin filter, period presets and a custom range, granularity by hour, day, week or month, comparison with the previous period, totals, the time chart, share by type, top devices or groups, a weekday-by-hour punchcard, a calendar heatmap for long ranges, a per-device timeline for a single day, and a paged session list. |
+| My Server > Plugins > Connection Stats | The full dashboard: scope (all devices, a group, a device), connection type chips, admin filter, period presets and a custom range, granularity by hour, day, week or month, comparison with the previous period, totals, the time chart, share by type, top devices or groups, a weekday-by-hour punchcard coloured by type that filters the list, a calendar heatmap for long ranges, a per-device timeline for a single day, and a paged session list. |
 | Device page > Plugins > Connection Stats | The same dashboard scoped to that device. |
 | Export menu | Sessions as CSV or JSON, totals per bucket as CSV, the chart as PNG, print or save as PDF, copy a link to the current view. |
 | Settings (site admins) | Retention, minimum session length, which types to record, active-time measurement, import of past sessions from MeshCentral's event log, import from MeshCentral backups. |
@@ -21,7 +21,7 @@ How long you were remoted into each device, split by Desktop, Terminal, Files an
 
 ### Session types
 
-Desktop, Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, and everything else (MeshCentral Router tunnels, local relays) as "Other". Device-share guests are recorded separately with the guest name, are off by default in the dashboard, and never count into admin totals.
+Desktop, Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, and everything else as "Other". "Other" is mostly MeshCentral Router: it opens its port tunnels without telling MeshCentral a protocol, so RDP, SSH, VNC or any other port forwarded through Router lands there, as do the RDP, SSH, VNC and SFTP relays MeshCentral opens for itself. The share-by-type legend and the session list say which of these it was. Device-share guests are recorded separately with the guest name, are off by default in the dashboard, and never count into admin totals.
 
 ![Night mode, one day](https://raw.githubusercontent.com/v3DJG6GL/MeshCentral-ConnectionStats/master/docs/night-day.png)
 

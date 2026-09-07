@@ -452,7 +452,8 @@ module.exports.connectionstats = function (parent) {
     // request -> { start, end, bucket, tz, scope, types, userids, includeGuests, compare }
     obj.parseQuery = function (q) {
         var now = Date.now();
-        var end = intq(q.end, now), start = intq(q.start, end - 7 * 86400000);
+        var maxT = now + 366 * 86400000;   // nothing beyond a year ahead: a garbage timestamp would make Intl throw
+        var end = Math.min(Math.max(intq(q.end, now), 0), maxT), start = Math.min(Math.max(intq(q.start, end - 7 * 86400000), 0), maxT);
         if (end - start > 5 * 366 * 86400000) start = end - 5 * 366 * 86400000;   // five years at most per query
         if (end < start) { var t = start; start = end; end = t; }
         var tz = (typeof q.tz == 'string' && q.tz.length < 64) ? q.tz : 'UTC';
@@ -493,8 +494,19 @@ module.exports.connectionstats = function (parent) {
         var p = obj.parseQuery(q);
         return obj.perms.filterFor(user, p).then(function (f) {
             if (f == null) return { error: 'Not allowed to see this scope', status: 403 };
-            return obj.db.listSessions(f, { skip: intq(q.skip, 0), limit: intq(q.limit, 50) }).then(function (list) {
-                return { rows: list.rows.map(obj.sessionRow), total: list.total, skip: intq(q.skip, 0) };
+            var skip = intq(q.skip, 0), limit = intq(q.limit, 50);
+            if (q.wd != null || q.hour != null) {
+                // a punchcard cell: sessions that start on that weekday and hour (local to tz). The
+                // store cannot filter by that, so page in memory over the range.
+                var wd = intq(q.wd, -1), hour = intq(q.hour, -1);
+                return obj.db.findSessions(f).then(function (rows) {
+                    rows = rows.filter(function (d) { var c = obj.aggregate.startCell(d, p.start, p.tz); return (wd < 0 || c.wd == wd) && (hour < 0 || c.h == hour); });
+                    rows.sort(function (a, b) { return b.start - a.start; });
+                    return { rows: rows.slice(skip, skip + limit).map(obj.sessionRow), total: rows.length, skip: skip };
+                });
+            }
+            return obj.db.listSessions(f, { skip: skip, limit: limit }).then(function (list) {
+                return { rows: list.rows.map(obj.sessionRow), total: list.total, skip: skip };
             });
         });
     };
@@ -503,7 +515,7 @@ module.exports.connectionstats = function (parent) {
     obj.sessionRow = function (d) {
         return {
             id: d._id, nodeid: d.nodeid, node: d.nodename || d.nodeid, meshid: d.meshid, group: d.meshname || null,
-            user: d.username || d.userid, userid: d.userid, guest: d.guest || null, type: d.type,
+            user: d.username || d.userid, userid: d.userid, guest: d.guest || null, type: d.type, protocol: d.protocol,
             start: d.start, end: d.end, seconds: d.seconds, active: d.active, bytesin: d.bytesin, bytesout: d.bytesout,
             ip: d.ip || null, truncated: !!d.truncated, source: d.source
         };

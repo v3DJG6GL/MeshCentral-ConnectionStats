@@ -117,6 +117,12 @@ function previousRange(start, end, bucket, tz) {
     return { start: start - len, end: end - len };
 }
 
+// weekday (0 = Sunday) and hour of a session's start inside the range, the punchcard's rule
+function startCell(session, start, tz) {
+    var p = partsIn(Math.max(session.start, start), tz);
+    return { wd: p.wd, h: p.h };
+}
+
 // ---- aggregation -----------------------------------------------------------
 // sessions: stored documents. opts: { start, end, bucket, tz, now }
 function aggregate(sessions, opts) {
@@ -125,9 +131,10 @@ function aggregate(sessions, opts) {
     var buckets = bucketEdges(start, end, bucket, tz).map(function (b) { return { s: b.s, e: b.e, by: {}, tot: 0 }; });
     // per-day totals feed the calendar view when the main buckets are coarser than a day
     var daily = (bucket == 'week' || bucket == 'month') ? bucketEdges(start, end, 'day', tz).map(function (b) { return { s: b.s, e: b.e, tot: 0 }; }) : null;
-    var byType = {}, byDevice = {}, byGroup = {}, pc = [], durs = [], devices = {}, users = {};
+    var byType = {}, byProtocol = {}, byDevice = {}, byGroup = {}, pc = [], durs = [], devices = {}, users = {};
     var total = 0, active = 0, seen = 0, count = 0, longest = 0, ongoing = 0;
-    for (var i = 0; i < 7; i++) { pc.push([]); for (var j = 0; j < 24; j++) pc[i].push(0); }
+    // punchcard: weekday x hour of (clipped) start, each cell split by type so the page can colour it
+    for (var i = 0; i < 7; i++) { pc.push([]); for (var j = 0; j < 24; j++) pc[i].push({ tot: 0, by: {} }); }
     var bi = 0;
     (sessions || []).forEach(function (s) {
         var e = (s.end == null) ? now : s.end;
@@ -140,6 +147,8 @@ function aggregate(sessions, opts) {
         if (s.nodeid) devices[s.nodeid] = 1;
         if (s.userid) users[s.userid] = 1;
         byType[s.type] = (byType[s.type] || 0) + sec;
+        var pk = s.type + ':' + ((s.protocol == null) ? 0 : s.protocol);
+        byProtocol[pk] = (byProtocol[pk] || 0) + sec;
         var dk = s.nodeid || '?';
         if (byDevice[dk] == null) byDevice[dk] = { id: dk, name: s.nodename || dk, meshid: s.meshid || null, seconds: 0, by: {}, sessions: 0 };
         byDevice[dk].seconds += sec; byDevice[dk].by[s.type] = (byDevice[dk].by[s.type] || 0) + sec; byDevice[dk].sessions++;
@@ -167,9 +176,10 @@ function aggregate(sessions, opts) {
                 db.tot += (Math.min(ce, db.e) - Math.max(cs, db.s)) / 1000;
             }
         }
-        var p = partsIn(cs, tz);
-        pc[p.wd][p.h] += sec;
+        var p = partsIn(cs, tz), cell = pc[p.wd][p.h];
+        cell.tot += sec; cell.by[s.type] = (cell.by[s.type] || 0) + sec;
     });
+    pc.forEach(function (row) { row.forEach(function (c) { c.tot = Math.round(c.tot); for (var t in c.by) c.by[t] = Math.round(c.by[t]); }); });
     if (daily != null) daily.forEach(function (d) { d.tot = Math.round(d.tot); });
     durs.sort(function (a, b) { return a - b; });
     var median = durs.length ? durs[Math.floor(durs.length / 2)] : 0;
@@ -180,9 +190,10 @@ function aggregate(sessions, opts) {
     };
     buckets.forEach(function (b) { b.tot = round(b.tot); for (var t in b.by) b.by[t] = round(b.by[t]); });
     for (var t in byType) byType[t] = round(byType[t]);
+    for (var pt in byProtocol) byProtocol[pt] = round(byProtocol[pt]);
     return {
         bucket: bucket, tz: tz, start: start, end: end,
-        buckets: buckets, daily: daily, byType: byType, byDevice: top(byDevice), byGroup: top(byGroup), punchcard: pc,
+        buckets: buckets, daily: daily, byType: byType, byProtocol: byProtocol, byDevice: top(byDevice), byGroup: top(byGroup), punchcard: pc,
         totals: {
             seconds: round(total), active: round(active), seenSeconds: round(seen), count: count, ongoing: ongoing,
             median: round(median), longest: round(longest), devices: Object.keys(devices).length, users: Object.keys(users).length
@@ -190,4 +201,4 @@ function aggregate(sessions, opts) {
     };
 }
 
-module.exports = { aggregate: aggregate, bucketEdges: bucketEdges, autoBucket: autoBucket, previousRange: previousRange, partsIn: partsIn, fromLocal: fromLocal, isoLocal: isoLocal, offsetMinutes: offsetMinutes, BUCKETS: BUCKETS };
+module.exports = { aggregate: aggregate, startCell: startCell, bucketEdges: bucketEdges, autoBucket: autoBucket, previousRange: previousRange, partsIn: partsIn, fromLocal: fromLocal, isoLocal: isoLocal, offsetMinutes: offsetMinutes, BUCKETS: BUCKETS };

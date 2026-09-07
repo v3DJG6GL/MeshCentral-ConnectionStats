@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+- **"Other" explained**: the share-by-type legend breaks "Other" down by what
+  it was (MeshCentral Router or port tunnel, RDP relay, SSH relay, ...), and
+  the session list shows the same next to the type. Router opens its tunnels
+  without a protocol, which is why it made up most of "Other".
+- **Punchcard by type**: the bubbles in "When you connect" are sliced by
+  connection type instead of all blue, and clicking one filters the session
+  list to the sessions that started on that weekday and hour. Escape or
+  "Clear" removes the filter.
+- A query with an out-of-range timestamp is clamped instead of failing.
+
 ## 0.2.0
 
 - **Import from backups**: MeshCentral deletes relay events after 20 days,
