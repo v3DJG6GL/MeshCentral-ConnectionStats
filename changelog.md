@@ -1,3 +1,8 @@
+## 0.4.7 — 2026-09-08
+
+- Open mapped recording status instead of an unrelated Start timer form while a mapped connection is active. Active-time sessions explain that their recording is prepared after disconnect.
+- Close device panels with Escape or an outside click, preserving the existing draft-save behavior.
+
 ## 0.4.6 — 2026-09-08
 
 - Show progress labels and form-local success/error feedback for Kimai settings

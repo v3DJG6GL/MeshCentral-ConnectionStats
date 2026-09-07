@@ -17,6 +17,7 @@
         serial = Promise.resolve(),
         busy = 0;
     var draftUnsaved = false;
+    var dismissalInstalled = false;
     var formGeneration = 0,
         lists = {},
         presented = new Set(),
@@ -250,7 +251,25 @@
         if (dialog && dialog.open) dialog.close();
         if (panel) panel.hidden = true;
     }
+    function dismissPanel(e) {
+        if (!panel || panel.hidden || busy) return;
+        if (e.type === 'keydown') {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (confirmation) {
+                confirmation.cancel();
+                return;
+            }
+        } else if (panel.contains(e.target)) return;
+        deferAndClose(false);
+    }
     function shell(heading) {
+        if (!dismissalInstalled) {
+            document.addEventListener('keydown', dismissPanel, true);
+            document.addEventListener('pointerdown', dismissPanel, true);
+            dismissalInstalled = true;
+        }
         var modal = state && state.preferences && state.preferences.presentation === 'dialog';
         if (confirmation) confirmation.cancel();
         formGeneration++;
@@ -412,7 +431,7 @@
             return;
         }
         var sessions = (state.sessions || []).filter(function (s) {
-            return !s.end;
+            return !s.end && (a || !s.mapped || s.basis !== 'active');
         });
         var data = Object.assign(
             { description: '', tags: [], billable: true, basis: 'connected' },
@@ -810,12 +829,43 @@
                 return;
             }
         }
-        var a =
-            deviceAllocations().find(ongoing) ||
-            deviceAllocations().find(function (x) {
-                return x.review;
-            });
-        return editor(a);
+        var a = deviceAllocations().find(ongoing);
+        var mapped = (state.sessions || []).filter(function (s) {
+            return s.nodeid === currentNodeId() && s.end == null && s.mapped;
+        });
+        if (!a && mapped.length) {
+            active = null;
+            shell('Mapped recording');
+            content(
+                '<p class="cs-kd-summary">These connections already have a matching recording rule.</p>' +
+                    mapped
+                        .map(function (s) {
+                            return (
+                                '<section><h3>' +
+                                esc(s.name || s.nodeid) +
+                                ' · ' +
+                                esc(types[s.type] || s.type) +
+                                '</h3><p>' +
+                                (s.basis === 'active'
+                                    ? 'Active time is being measured. The recording will be prepared after disconnect using the measured active duration.'
+                                    : 'Connected time will be prepared after disconnect using your mapping rule.') +
+                                '</p></section>'
+                            );
+                        })
+                        .join('') +
+                    '<p>No additional timer is needed. Review settings and minimum session length determine what happens after disconnect.</p>' +
+                    '<a href="' +
+                    esc(settingsUrl()) +
+                    '">Open Kimai settings</a>',
+            );
+            return;
+        }
+        return editor(
+            a ||
+                deviceAllocations().find(function (x) {
+                    return x.review;
+                }),
+        );
     }
     function effectiveRow(a) {
         return Object.assign({}, a, a.draft || {});
@@ -1109,7 +1159,7 @@
             (panel && !panel.hidden) ||
             state.activeConnections > 0 ||
             (state.sessions || []).some(function (s) {
-                return !s.end;
+                return !s.end && (a || !s.mapped || s.basis !== 'active');
             })
         )
             return;

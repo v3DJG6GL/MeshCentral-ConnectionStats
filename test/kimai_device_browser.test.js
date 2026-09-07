@@ -55,6 +55,7 @@ async function harness(overrides = {}, environment = {}) {
         domainUrl: '/tenant/',
         document: {
             hidden: false,
+            addEventListener() {},
             getElementById: (id) =>
                 hosts[id] ||
                 Object.values(hosts)
@@ -81,7 +82,7 @@ async function harness(overrides = {}, environment = {}) {
     vm.runInContext(
         source.replace(
             /window\.CSDevice\s*=\s*\{/,
-            'window.__test={shell,placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
+            'window.__test={openDevice,dismissPanel,shell,placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
         ),
         context,
     );
@@ -301,4 +302,48 @@ test('presentation preference applies to manual editor, inbox and subsequent nav
     h.initial.preferences.presentation = 'drawer';
     h.api.shell('Recording details');
     assert.deepEqual(events.slice(-2), ['close', 'body']);
+});
+
+test('mapped active connection opens status without a duplicate start form', async () => {
+    const h = await harness({
+        sessions: [
+            {
+                nodeid: 'node/test',
+                end: null,
+                mapped: true,
+                basis: 'active',
+                name: 'Device',
+                type: 'desktop',
+            },
+        ],
+    });
+    const body = {};
+    const p = {
+        hidden: true,
+        querySelector: (s) => (s === '.cs-kd-content' ? body : {}),
+        querySelectorAll: () => [],
+    };
+    h.context.document.body = { append() {}, classList: { contains: () => false } };
+    h.api.setPanel(p);
+    await h.api.openDevice();
+    assert.match(p.innerHTML, /Mapped recording/);
+    assert.match(body.innerHTML, /measured active duration/);
+    assert.doesNotMatch(body.innerHTML, /Start timer|<form/);
+    assert.equal(h.calls.filter((c) => c.options && c.options.method === 'POST').length, 0);
+});
+
+test('Escape and outside pointer dismiss panels while inside interactions do not', async () => {
+    const h = await harness();
+    const inside = {};
+    const p = { hidden: false, contains: (x) => x === inside };
+    h.api.setPanel(p);
+    h.api.dismissPanel({ type: 'pointerdown', target: inside });
+    assert.equal(p.hidden, false);
+    h.api.dismissPanel({ type: 'pointerdown', target: {} });
+    assert.equal(p.hidden, true);
+    p.hidden = false;
+    h.api.dismissPanel({ type: 'keydown', key: 'Enter' });
+    assert.equal(p.hidden, false);
+    h.api.dismissPanel({ type: 'keydown', key: 'Escape', preventDefault() {}, stopPropagation() {} });
+    assert.equal(p.hidden, true);
 });
