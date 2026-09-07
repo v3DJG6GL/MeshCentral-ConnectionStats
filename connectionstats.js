@@ -218,9 +218,11 @@ module.exports.connectionstats = function (parent) {
         obj.meshServer.pluginHandler.connectionstats_sub = obj;
         obj.meshServer.AddEventDispatch(['*'], obj);
 
-        obj.loadSettings().then(function () { return obj.retypeOnce(); }).then(function () { return obj.restoreOpenSessions(); }).then(function () { return obj.maybeAutoBackfill(); }).catch(function (e) {
+        // exposed as obj.ready so tests and other code can wait for the store and settings
+        obj.ready = obj.loadSettings().then(function () { return obj.retypeOnce(); }).then(function () { return obj.restoreOpenSessions(); }).then(function () { return obj.maybeAutoBackfill(); }).catch(function (e) {
             console.log('CONNSTATS: startup error: ' + (e.message || e));
         });
+        return obj.ready;
         // heartbeats reach the store once a minute, so a crash loses at most a minute of active time
         if (obj.meshServer.pluginHandler.connectionstats_flush != null) { try { clearInterval(obj.meshServer.pluginHandler.connectionstats_flush); } catch (e) { } }
         var flush = setInterval(function () { obj.flushActivity(); }, 60000);
