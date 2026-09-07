@@ -135,10 +135,11 @@
         var W = 760, H = 250, L = 38, R = 8, T = 12, B = 26, bk = a.buckets, n = bk.length, bucket = a.bucket;
         if (!n) return '';
         var maxv = 0; bk.forEach(function (b) { maxv = Math.max(maxv, b.tot); }); if (prev) prev.buckets.forEach(function (b) { maxv = Math.max(maxv, b.tot); });
-        var unit = maxv > 3600 ? 3600 : 60, maxU = niceMax(maxv / unit), ticks = [0, .25, .5, .75, 1].map(function (x) { return x * maxU; });
+        var unit = maxv > 3600 ? 3600 : maxv > 60 ? 60 : 1, maxU = niceMax(maxv / unit), ticks = [0, .25, .5, .75, 1].map(function (x) { return x * maxU; });
+        var tick = function (t) { var v = Number.isInteger(t) ? t : Number(t.toFixed(1)); return v + (unit == 3600 ? 'h' : unit == 60 ? 'm' : 's'); };
         var iw = (W - L - R) / n, bw = Math.max(2, iw * (n > 31 ? .7 : .62));
         var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Connected time per ' + bucket + ' by connection type">';
-        ticks.forEach(function (t) { var y = T + (H - T - B) * (1 - t / maxU); s += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '"/><text class="ax" x="' + (L - 5) + '" y="' + (y + 3.5) + '" text-anchor="end">' + (unit == 3600 ? (Number.isInteger(t) ? t : t.toFixed(1)) + 'h' : Math.round(t) + 'm') + '</text>'; });
+        ticks.forEach(function (t) { var y = T + (H - T - B) * (1 - t / maxU); s += '<line class="gl" x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '"/><text class="ax" x="' + (L - 5) + '" y="' + (y + 3.5) + '" text-anchor="end">' + tick(t) + '</text>'; });
         var every = n > 31 ? Math.ceil(n / 12) : n > 14 ? Math.ceil(n / 10) : 1;
         bk.forEach(function (b, i) {
             var x = L + iw * i + (iw - bw) / 2, y = H - B, d = new Date(b.s);
@@ -296,7 +297,15 @@
         }
         root.className = 'cs' + (LOADING ? ' cs-loading' : '');
         root.innerHTML = h;
+        reportHeight();
     }
+    // when embedded in the device tab, tell the parent how tall we are
+    function reportHeight() {
+        if (window.parent === window) return;
+        // measure the content, not the viewport: the viewport is whatever height the parent gave the iframe
+        try { window.parent.postMessage({ cs: 'height', h: root.offsetHeight + 16 }, '*'); } catch (e) { }
+    }
+    window.addEventListener('resize', reportHeight);
 
     // ---------- events ----------
     root.addEventListener('click', function (ev) {

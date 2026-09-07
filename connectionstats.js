@@ -28,7 +28,61 @@ module.exports.connectionstats = function (parent) {
     //  .toString() and runs in the browser. They must be self-contained and
     //  reach each other only through pluginHandler.connectionstats.<name>.
     // ------------------------------------------------------------------
-    obj.exports = [];
+    obj.exports = [
+        'onWebUIStartupEnd',
+        'onDeviceRefreshEnd',
+        'csNight',
+        'csTabUrl',
+        'csEnsureTab',
+        'csOnMessage'
+    ];
+
+    // Runs once when the web UI has loaded: keep embedded pages in step with night mode and
+    // listen for their size reports.
+    obj.onWebUIStartupEnd = function () {
+        try {
+            if (window.__csStarted) return; window.__csStarted = true;
+            window.addEventListener('message', function (ev) { pluginHandler.connectionstats.csOnMessage(ev); });
+            var mo = new MutationObserver(function () {
+                var f = document.getElementById('csDeviceFrame');
+                if (f && f.contentWindow) { try { f.contentWindow.postMessage({ cs: 'night', night: pluginHandler.connectionstats.csNight() }, '*'); } catch (e) { } }
+            });
+            mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        } catch (e) { }
+    };
+
+    obj.csNight = function () { return document.body.classList.contains('night'); };
+
+    obj.csTabUrl = function (nodeid) {
+        var base = (typeof domainUrl == 'string') ? domainUrl : '/';
+        return base + 'pluginadmin.ashx?pin=connectionstats&view=device&nodeid=' + encodeURIComponent(nodeid) + '&night=' + (pluginHandler.connectionstats.csNight() ? '1' : '0');
+    };
+
+    // The embedded page reports its height so the tab never shows a scrollbar inside a scrollbar.
+    obj.csOnMessage = function (ev) {
+        var d = ev.data;
+        if (d == null || d.cs != 'height') return;
+        var f = document.getElementById('csDeviceFrame');
+        if (f && f.contentWindow === ev.source) f.style.height = Math.max(300, Math.min(6000, Number(d.h))) + 'px';
+    };
+
+    // MeshCentral wipes the plugin tab area before every device refresh, so the tab is registered
+    // each time; the iframe is only recreated when the device changes, not on every refresh.
+    obj.csEnsureTab = function (nodeid) {
+        var host = document.getElementById('pluginConnectionStats');
+        if (host == null) return;
+        var f = document.getElementById('csDeviceFrame');
+        if (f != null && f.getAttribute('data-nodeid') == nodeid) return;
+        host.innerHTML = '<iframe id="csDeviceFrame" data-nodeid="' + nodeid.replace(/"/g, '') + '" src="' + pluginHandler.connectionstats.csTabUrl(nodeid) + '" style="width:100%;height:900px;border:0;background:transparent" title="Connection Stats"></iframe>';
+    };
+
+    obj.onDeviceRefreshEnd = function (nodeid, panel, refresh, event) {
+        try {
+            if (typeof currentNode == 'undefined' || currentNode == null) return;
+            pluginHandler.registerPluginTab({ tabId: 'pluginConnectionStats', tabTitle: 'Connection Stats' });
+            pluginHandler.connectionstats.csEnsureTab(currentNode._id);
+        } catch (e) { }
+    };
 
     // ------------------------------------------------------------------
     //  Settings
@@ -77,6 +131,7 @@ module.exports.connectionstats = function (parent) {
     obj.saveSettings = function (input) {
         obj.settings = obj.sanitizeSettings(input);
         obj.db.setRetentionDays(obj.settings.retentionDays);
+        obj.tracker.idleSeconds = obj.settings.activity.idleMinutes * 60;
         return obj.db.setSetting('settings', obj.settings).then(function () { return obj.settings; });
     };
 
