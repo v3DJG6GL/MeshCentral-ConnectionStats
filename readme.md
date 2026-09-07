@@ -242,3 +242,13 @@ been visually checked in a fixture. Bootstrap layouts and your deployed instance
 still need installation-specific validation.
 Automation should remain disabled on a deployment until connection testing and a
 small manual preview/send have succeeded against that installation.
+
+### Concurrent Kimai connections (0.4.9)
+
+Mapping rules accept several connection types using checkboxes. No selected types means any type; existing single-type rules remain compatible. Group and device filters still apply, and the first matching rule wins.
+
+For connected-time rules, overlapping or adjacent untouched automatic recordings share elapsed time when project, activity, duration basis and billing mode match—even across computers, groups and connection types. A shared running recording closes only when its last contributor disconnects. Gaps remain separate. Different destinations require review instead of parallel automatic billing.
+
+Active-time rules finalize after disconnect. Overlapping measured activity across tracked connections requires a reviewed duration: per-session totals cannot establish unique activity across computers. Unmatched connections are not automatically tracked for Kimai. Explicit manual starts remain available.
+
+Each device toolbar shows tracking status for its own connection type. A Terminal connection does not inherit the Desktop rule or clock. Its quick-stop action stops only that type on that device, preserving other contributors. The editor still shows all contributors to a shared recording; changing the whole recording affects that shared entry.

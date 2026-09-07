@@ -378,10 +378,14 @@ class Device {
                     current &&
                     (current.project !== r.project ||
                         current.activity !== r.activity ||
-                        current.billable !== (r.billable !== false))
+                        current.billable !== (r.billable !== false) ||
+                        current.basis !== r.basis)
                 )
                     continue;
                 if (current) {
+                    const contribution = mapped(doc, r);
+                    current.description = [...new Set([current.description, contribution.description])].join('; ').slice(0, 1000);
+                    current.tags = [...new Set((current.tags + ',' + contribution.tags).split(',').filter(Boolean))].join(',');
                     current.source.push(doc._id);
                     current.spans.push(ruleSpan(doc, Math.max(piece.begin, current.begin), null, r, cfg));
                     current.prompt = strictPrompt(
@@ -430,7 +434,10 @@ class Device {
                         if (
                             docs.some(
                                 (x) =>
-                                    x._id !== doc._id && x.start < doc.end && doc.start < (x.end ?? Infinity),
+                                    x._id !== doc._id && !x.guest &&
+                                    (!!match(x, s.rules || []) || Object.values(s.allocations).some((a) =>
+                                        a.status !== 'excluded' && a.source.includes(x._id))) &&
+                                    x.start < doc.end && doc.start < (x.end ?? Infinity),
                             )
                         )
                             a.error = 'Overlapping activity requires a reviewed duration';
@@ -459,6 +466,7 @@ class Device {
                         merged.end = Math.max(merged.end, a.end);
                         merged.source = [...new Set(merged.source.concat(a.source))];
                         merged.spans.push(...a.spans);
+                        merged.tags = [...new Set((merged.tags + ',' + a.tags).split(',').filter(Boolean))].join(',');
                         merged.prompt = strictPrompt(merged.prompt || cfg.preferences.prompt, a.prompt);
                         merged.description = [...new Set([merged.description, a.description])]
                             .join('; ')
@@ -467,6 +475,29 @@ class Device {
                     } else s.allocations[a.id] = a;
                 }
             }
+        }
+        // Union all untouched automatic connected recordings, including transitive bridges
+        // and a completed contributor that overlaps a still-open connection.
+        const groups = new Map();
+        for (const a of Object.values(s.allocations).sort((a, b) => a.begin - b.begin)) {
+            if (a.origin !== 'rule' || a.basis !== 'connected' || a.error || a.draft ||
+                a.blocks.length || !['review', 'recording-local'].includes(a.status)) continue;
+            const key = JSON.stringify([a.project, a.activity, a.billable]);
+            const prior = groups.get(key);
+            if (!prior || a.begin > infinity(prior.end)) {
+                groups.set(key, a);
+                continue;
+            }
+            prior.end = prior.end == null || a.end == null ? null : Math.max(prior.end, a.end);
+            prior.source = [...new Set(prior.source.concat(a.source))];
+            prior.spans.push(...a.spans);
+            prior.prompt = strictPrompt(prior.prompt || cfg.preferences.prompt, a.prompt || cfg.preferences.prompt);
+            prior.description = [...new Set([prior.description, a.description])].join('; ').slice(0, 1000);
+            prior.tags = [...new Set((prior.tags + ',' + a.tags).split(',').filter(Boolean))].join(',');
+            prior.review = prior.end != null;
+            prior.status = prior.review ? 'review' : 'recording-local';
+            revise(prior);
+            delete s.allocations[a.id];
         }
         // Flag both destinations before any automation can bill one side of an overlap.
         const entries = Object.values(s.allocations)

@@ -483,3 +483,17 @@ test('preview minimum checks source length before subtracting already-reserved f
     assert.equal(p.rows.length, 1);
     assert.equal(p.rows[0].seconds, 30);
 });
+
+
+test('multi-type rules match selected types with legacy migration and first-match ordering', () => {
+    const rs = rules([{...rule, types:['desktop','terminal','desktop']}, {...rule, project:3, type:'files'}]);
+    assert.deepEqual(rs[0].types, ['desktop','terminal']);
+    assert.deepEqual(rs[1].types, ['files']);
+    const rows = build([doc('d',0,10),doc('t',5,15,{type:'terminal'}),doc('f',20,25,{type:'files'}),doc('x',30,35,{type:'amt'})], rs, 'UTC');
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].seconds, 900);
+    assert.deepEqual(rows[0].source, ['d','t']);
+    assert.equal(rows[1].project, 3);
+    assert.throws(() => rules([{...rule, types:['invalid']}]), /Invalid connection types/);
+    assert.equal(build([doc('x',0,1,{type:'files'})], rules([{...rule, types:[]}]), 'UTC').length, 1);
+});

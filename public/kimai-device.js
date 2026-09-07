@@ -9,6 +9,7 @@
         api = base + 'pluginadmin.ashx?pin=connectionstats';
     var state,
         node = '',
+        selectedConnectionType = null,
         refreshing = false,
         receivedAt = 0,
         active,
@@ -432,7 +433,12 @@
             return;
         }
         var sessions = (state.sessions || []).filter(function (s) {
-            return !s.end && (a || !s.mapped || s.basis !== 'active');
+            return (
+                !s.end &&
+                (a ||
+                    ((!selectedConnectionType || s.type === selectedConnectionType) &&
+                        (!s.mapped || s.basis !== 'active')))
+            );
         });
         var data = Object.assign(
             { description: '', tags: [], billable: true, basis: 'connected' },
@@ -822,7 +828,8 @@
         };
         box.querySelector('input').focus();
     }
-    async function openDevice() {
+    async function openDevice(connectionType) {
+        if (typeof connectionType === 'string') selectedConnectionType = connectionType;
         if (draftTimer || draftUnsaved) {
             try {
                 await saveDraft();
@@ -830,9 +837,14 @@
                 return;
             }
         }
-        var a = deviceAllocations().find(ongoing);
+        var a = runningAllocation(selectedConnectionType);
         var mapped = (state.sessions || []).filter(function (s) {
-            return s.nodeid === currentNodeId() && s.end == null && s.mapped;
+            return (
+                s.nodeid === currentNodeId() &&
+                s.end == null &&
+                s.mapped &&
+                (!selectedConnectionType || s.type === selectedConnectionType)
+            );
         });
         if (!a && mapped.length) {
             active = null;
@@ -863,7 +875,7 @@
         }
         return editor(
             a ||
-                deviceAllocations().find(function (x) {
+                deviceAllocations(selectedConnectionType).find(function (x) {
                     return x.review;
                 }),
         );
@@ -1042,20 +1054,25 @@
         });
         setBusy();
     }
-    function deviceAllocations() {
+    function deviceAllocations(connectionType) {
         var id = currentNodeId();
         return id
             ? (state.allocations || []).filter(function (a) {
                   return (a.spans || []).some(function (x) {
-                      return x.nodeid === id;
+                      return x.nodeid === id && (!connectionType || x.type === connectionType);
                   });
               })
             : [];
     }
-    function deviceSpans(a, id) {
+    function runningAllocation(connectionType) {
+        return deviceAllocations(connectionType).find(function (a) {
+            return ongoing(a) && deviceSpans(a, currentNodeId(), connectionType).length > 0;
+        });
+    }
+    function deviceSpans(a, id, connectionType) {
         return (a.spans || [])
             .filter(function (x) {
-                return x.nodeid === id && x.end == null;
+                return x.nodeid === id && x.end == null && (!connectionType || x.type === connectionType);
             })
             .map(function (x) {
                 return x.sessionId;
@@ -1074,11 +1091,12 @@
             button.connectionType = { deskstatus: 'desktop', termstatus: 'terminal', p13Status: 'files' }[id];
             button.textContent = 'Kimai';
             button.onclick = function () {
-                if (state) openDevice();
+                if (state) openDevice(button.connectionType);
                 else refresh(true);
             };
             var stopButton = document.createElement('button');
             stopButton.type = 'button';
+            stopButton.connectionType = button.connectionType;
             stopButton.className = 'cs-kd-quick-stop';
             stopButton.hidden = true;
             wrap.append(button);
@@ -1107,12 +1125,17 @@
         );
     }
     function updateChips() {
-        var a = deviceAllocations().find(ongoing),
-            count = (state.reviews || []).length,
-            mapped = (state.sessions || []).filter(function (x) {
-                return x.nodeid === currentNodeId() && x.end == null && x.mapped;
-            });
+        var count = (state.reviews || []).length;
         document.querySelectorAll('.cs-kd-chip').forEach(function (b) {
+            var a = runningAllocation(b.connectionType),
+                mapped = (state.sessions || []).filter(function (s) {
+                    return (
+                        s.nodeid === currentNodeId() &&
+                        s.end == null &&
+                        s.mapped &&
+                        s.type === b.connectionType
+                    );
+                });
             b.textContent =
                 'Kimai · ' +
                 (!state.connected
@@ -1127,10 +1150,15 @@
                           })
                             ? 'Active time · review after disconnect'
                             : 'Mapped · review after disconnect'
-                        : 'Start timer') +
+                        : 'Not tracking · Start timer') +
                 (count ? ' · ' + count + ' to review' : '');
             var connections = (state.sessions || []).filter(function (s) {
-                return s.nodeid === currentNodeId() && s.end == null && s.type === b.connectionType;
+                return (
+                    s.nodeid === currentNodeId() &&
+                    s.end == null &&
+                    s.type === b.connectionType &&
+                    (s.mapped || (a && deviceSpans(a, currentNodeId(), b.connectionType).includes(s.id)))
+                );
             });
             if (state.connected)
                 b.textContent += connectionClock(
@@ -1141,11 +1169,12 @@
                 'Open personal Kimai controls. Active time is the latest server measurement; multiple values are per connection, not added together.';
         });
         document.querySelectorAll('.cs-kd-quick-stop').forEach(function (b) {
-            var ids = a ? deviceSpans(a, currentNodeId()) : [];
+            var a = runningAllocation(b.connectionType);
+            var ids = a ? deviceSpans(a, currentNodeId(), b.connectionType) : [];
             b.hidden = !ids.length;
             b.disabled = !!busy || !!confirmation || (b.dataset && b.dataset.unavailable === 'true');
-            b.textContent = a && (a.source || []).length > 1 ? 'Stop tracking this device' : 'Stop & keep';
-            b.title = 'Stop only this device’s contributions; remote access and other devices keep running.';
+            b.textContent = a && (a.source || []).length > 1 ? 'Stop this connection type' : 'Stop & keep';
+            b.title = 'Stop this connection type on this device; other contributors keep running.';
             b.onclick = function () {
                 if (a && ids.length) stop(a, ids);
             };

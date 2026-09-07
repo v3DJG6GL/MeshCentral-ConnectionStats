@@ -176,13 +176,13 @@ test('quick stop selects only open contributors on the current device', async ()
 
 test('mapped open sessions show pending review without claiming a running Kimai timer', async () => {
     const h = await harness({
-        sessions: [{ nodeid: 'node/test', end: null, mapped: true, basis: 'connected' }],
+        sessions: [{ nodeid: 'node/test', type: 'desktop', end: null, mapped: true, basis: 'connected' }],
     });
     assert.match(h.hosts.deskstatus.children[0].children[0].textContent, /Mapped · review after disconnect/);
     h.initial.sessions[0].basis = 'active';
     await h.api.refresh(true);
     assert.match(
-        h.hosts.termstatus.children[0].children[0].textContent,
+        h.hosts.deskstatus.children[0].children[0].textContent,
         /Active time · review after disconnect/,
     );
     h.initial.sessions[0].end = Date.now();
@@ -396,4 +396,51 @@ test('each toolbar clock uses its own connection type', async () => {
     assert.match(h.hosts.deskstatus.children[0].children[0].textContent, /Elapsed 0:01:05 · Active 0:00:32/);
     assert.match(h.hosts.termstatus.children[0].children[0].textContent, /Elapsed 0:01:30 · Active 0:00:14/);
     assert.doesNotMatch(h.hosts.p13Status.children[0].children[0].textContent, /Elapsed/);
+});
+
+test('unmatched terminal shows no recording clock from a mapped desktop', async () => {
+    const now = Date.now();
+    const h = await harness({
+        serverNow: now,
+        sessions: [
+            {
+                id: 'd',
+                nodeid: 'node/test',
+                type: 'desktop',
+                start: now - 60000,
+                end: null,
+                mapped: true,
+                basis: 'active',
+                active: 30,
+            },
+            {
+                id: 't',
+                nodeid: 'node/test',
+                type: 'terminal',
+                start: now - 60000,
+                end: null,
+                mapped: false,
+                active: 20,
+            },
+        ],
+    });
+    const label = h.hosts.termstatus.children[0].children[0].textContent;
+    assert.match(label, /Not tracking/);
+    assert.doesNotMatch(label, /Elapsed|Active time|Recording locally/);
+    assert.deepEqual(
+        Array.from(
+            h.api.deviceSpans(
+                {
+                    spans: [
+                        { sessionId: 'd', nodeid: 'node/test', type: 'desktop', end: null },
+                        { sessionId: 't', nodeid: 'node/test', type: 'terminal', end: null },
+                        { sessionId: 'other', nodeid: 'node/other', type: 'desktop', end: null },
+                    ],
+                },
+                'node/test',
+                'desktop',
+            ),
+        ),
+        ['d'],
+    );
 });

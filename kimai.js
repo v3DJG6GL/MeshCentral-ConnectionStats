@@ -44,13 +44,16 @@ function rules(input) {
             throw Error('Select a project and activity for every rule');
         if (r.prompt != null && !['inherit', 'always', 'issues', 'never'].includes(r.prompt)) throw Error('Invalid rule review preference');
         if (r.minSeconds != null && r.minSeconds !== '' && (!Number.isInteger(+r.minSeconds) || +r.minSeconds < 0 || +r.minSeconds > 86400)) throw Error('Minimum session length must be 0–86400 seconds');
+        const allowedTypes = ['desktop', 'terminal', 'files', 'webapp', 'messenger', 'amt', 'tunnel', 'plugin', 'registry', 'other'];
+        const selectedTypes = r.types == null ? (r.type ? [r.type] : []) : r.types;
+        if (!Array.isArray(selectedTypes) || selectedTypes.some((t) => !allowedTypes.includes(t))) throw Error('Invalid connection types');
         return {
             prompt: r.prompt || 'inherit',
             minSeconds: r.minSeconds == null || r.minSeconds === '' ? null : +r.minSeconds,
             id: String(r.id || crypto.randomUUID()),
             group: String(r.group || ''),
             device: String(r.device || ''),
-            type: String(r.type || ''),
+            types: [...new Set(selectedTypes)],
             customer: +r.customer || 0,
             project: +r.project,
             activity: +r.activity,
@@ -66,7 +69,7 @@ function match(s, rs) {
         (r) =>
             (!r.group || r.group === s.meshid) &&
             (!r.device || r.device === s.nodeid) &&
-            (!r.type || r.type === s.type),
+            (Array.isArray(r.types) ? !r.types.length || r.types.includes(s.type) : !r.type || r.type === s.type),
     );
 }
 function build(sessions, rs, tz, defaultMinSeconds = 0) {

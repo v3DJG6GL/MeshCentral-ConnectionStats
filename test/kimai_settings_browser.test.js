@@ -26,7 +26,7 @@ function harness() {
     let code = fs.readFileSync(path.join(__dirname, '../public/kimai.js'), 'utf8');
     code =
         code.slice(0, code.lastIndexOf('    reload().catch')) +
-        '    window.testApi={historyRows,historyCategory,clockDuration,setHistory:function(s, data, filter){state=s;lists=data;historyFilter=filter;},run,setReload:function(fn){reload=fn;}};})();';
+        '    window.testApi={captureRules,getState:function(){return state;},historyRows,historyCategory,clockDuration,setHistory:function(s, data, filter){state=s;lists=data;historyFilter=filter;},run,setReload:function(fn){reload=fn;}};})();';
     vm.runInNewContext(code, context);
     context.window.testApi.setReload(async () => {});
     return { api: context.window.testApi, button, statuses, root };
@@ -104,4 +104,26 @@ test('history keeps durations comparable, escapes content and distinguishes disc
     assert.match(h.api.historyRows(), /Review issue & actions/);
     assert.match(h.api.historyRows(), /data-review="x"/);
     assert.equal(h.api.historyCategory({ status: 'kept' }), 'synced');
+});
+
+test('rule editor captures checked connection types and preserves an empty wildcard selection', () => {
+    const h = harness();
+    h.api.setHistory({ rules: [{ id: 'r' }] }, {}, 'all');
+    const controls = [
+        { name: 'types', value: 'desktop', checked: true },
+        { name: 'types', value: 'terminal', checked: true },
+        { name: 'types', value: 'files', checked: false },
+        { name: 'billable', value: 'false' },
+    ];
+    const row = { dataset: { rule: '0' }, querySelectorAll: () => controls };
+    h.root.querySelector = () => ({
+        querySelectorAll: () => [row],
+        elements: { live: { checked: false }, nightly: { checked: false } },
+    });
+    h.api.captureRules();
+    assert.deepEqual(Array.from(h.api.getState().rules[0].types), ['desktop', 'terminal']);
+    assert.equal(h.api.getState().rules[0].billable, false);
+    controls.forEach((x) => (x.checked = false));
+    h.api.captureRules();
+    assert.deepEqual(Array.from(h.api.getState().rules[0].types), []);
 });

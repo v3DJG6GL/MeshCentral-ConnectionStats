@@ -692,3 +692,70 @@ test('active-time group rule applies after disconnect with live timers disabled,
     assert.equal(v.reviews[0].prompt,'issues');
     assert.match(v.reviews[0].error,/Active-time|Overlapping activity/);
 });
+
+test('same-group mixed connections across devices share a timer until the last disconnect', async (t) => {
+    const f = setup(t); await f.ready();
+    const s = await f.service.state(f.user);
+    s.live = true;
+    s.rules = [{...f.dest, group:'g', types:['desktop','terminal','files'], basis:'connected'}];
+    await f.service.save(f.user,s);
+    const a=f.doc('a',0); a.meshid='g';
+    await f.view(); f.step(10000);
+    const b=f.doc('b',0); Object.assign(b,{meshid:'g',nodeid:a.nodeid,type:'terminal'});
+    await f.view(); f.step(10000);
+    const c=f.doc('c',0); Object.assign(c,{meshid:'g',type:'files'});
+    const ignored=f.doc('ignored',0); ignored.meshid='other';
+    let v=await f.view(); assert.equal(v.allocations.length,1); assert.equal(v.allocations[0].source.length,3);
+    f.step(10000); a.end=f.now; v=await f.view(); assert.equal(v.allocations[0].end,null);
+    f.step(10000); b.end=f.now; v=await f.view(); assert.equal(v.allocations[0].end,null);
+    f.step(10000); c.end=f.now; v=await f.view();
+    assert.equal(v.allocations.length,1); assert.equal(v.allocations[0].seconds,50);
+    assert.deepEqual([...v.allocations[0].source].sort(),['a','b','c']);
+    assert.equal(v.allocations[0].review,true);
+    let recording=v.allocations[0];
+    await f.action('save',{id:recording.id,revision:recording.revision,row:f.dest,reviewed:true});
+    assert.equal(f.remotes.length,1); assert.equal(f.remotes[0].duration,50);
+    recording=(await f.view()).allocations[0];
+    await f.action('save',{id:recording.id,revision:recording.revision,row:f.dest,reviewed:true});
+    assert.equal(f.remotes.length,1);
+});
+
+test('different groups with competing destinations require review without a parallel timer', async (t) => {
+    const f=setup(t); await f.ready();
+    const s=await f.service.state(f.user); s.live=true;
+    s.rules=[{...f.dest,group:'g1',basis:'connected'},{...f.dest,project:9,group:'g2',basis:'connected'}];
+    await f.service.save(f.user,s);
+    const a=f.doc('a',0); a.meshid='g1'; await f.view(); f.step(10000);
+    const b=f.doc('b',0); b.meshid='g2';
+    assert.equal((await f.view()).allocations.length,1);
+    f.step(10000); b.end=f.now;
+    let v=await f.view(); assert.match(v.allocations.find(x=>x.project===9).error,/Overlapping destinations/);
+    assert.equal(v.allocations.find(x=>x.project===1).end,null);
+    f.step(10000); a.end=f.now; v=await f.view();
+    assert.ok(v.allocations.every(x=>/Overlapping destinations/.test(x.error)));
+});
+
+test('completed bridging connections merge transitive overlap without counting gaps twice', async (t) => {
+    const f=setup(t); await f.ready();
+    const s=await f.service.state(f.user); s.rules=[{...f.dest,basis:'connected'}]; await f.service.save(f.user,s);
+    await f.view();
+    const start=f.now;
+    const a=f.doc('a',0); a.end=start+10000;
+    const b=f.doc('b',20000); b.end=start+30000;
+    const bridge=f.doc('bridge',5000); bridge.end=start+25000;
+    f.step(40000);
+    const v=await f.view();
+    assert.equal(v.allocations.length,1); assert.equal(v.allocations[0].seconds,30);
+    assert.equal(v.allocations[0].source.length,3);
+});
+
+test('overlapping mapped active sessions require review, unmatched activity does not', async (t) => {
+    const f=setup(t); await f.ready();
+    const s=await f.service.state(f.user); s.rules=[{...f.dest,types:['desktop'],basis:'active'}]; await f.service.save(f.user,s);
+    const a=f.doc('a',0), ignored=f.doc('ignored',0); ignored.type='terminal';
+    f.step(10000); a.end=ignored.end=f.now; a.active=5;
+    let v=await f.view(); assert.equal(v.allocations.length,1); assert.ok(!v.allocations[0].error);
+    const b=f.doc('b',0), c=f.doc('c',0); b.active=c.active=5;
+    f.step(10000); b.end=c.end=f.now; v=await f.view();
+    assert.ok(v.allocations.filter(x=>x.source.includes('b')||x.source.includes('c')).every(x=>/Overlapping activity/.test(x.error)));
+});

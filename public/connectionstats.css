@@ -219,3 +219,6 @@ a.cs-btn { text-decoration: none; display: inline-block; }
 .km-history-pending { color:var(--m); }
 .km-history-table td.km-history-when { overflow-wrap:normal; }
 .km-history-when strong { white-space:nowrap; }
+.km-rule-types { margin:0; padding:8px; border:1px solid var(--r); border-radius:4px; }
+.km-rule-types small { display:block; color:var(--m); margin-bottom:6px; }
+.km-fields .km-rule-types label { display:inline-flex; flex-direction:row; align-items:center; margin:0 10px 5px 0; gap:4px; }

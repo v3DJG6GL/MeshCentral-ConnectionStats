@@ -1,3 +1,10 @@
+## 0.4.9 — 2026-09-08
+
+- Select multiple connection types in each mapping rule; existing single-type rules retain their meaning.
+- Scope toolbar status, clocks, manual-start views and quick-stop actions to the corresponding connection type. Unmatched connections explicitly show Not tracking, without a Kimai clock.
+- Union untouched automatic connected recordings across devices/types, including transitive overlaps and completed contributors overlapping open ones. Preserve all contributors and tags; stop only after the last contributing connection ends.
+- Keep competing destinations and overlapping measured active time under review. Unmatched, untracked connections do not create false active-overlap warnings.
+
 ## 0.4.8 — 2026-09-08
 
 - Show elapsed connection time and measured active time, including seconds, on each device toolbar. Missing activity is explicitly unavailable; concurrent activity values remain separate.

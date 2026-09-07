@@ -128,9 +128,22 @@
             select('group', meta.groups || [], r.group, 'Any group') +
             '</label><label>Device' +
             select('device', meta.devices || [], r.device, 'Any device') +
-            '</label><label>Connection type' +
-            select('type', types(), r.type, 'Any type') +
-            '</label>' +
+            '</label><fieldset class="km-rule-types"><legend>Connection types</legend><small>No selection matches any type.</small>' +
+            types()
+                .map(function (t) {
+                    var selected = Array.isArray(r.types) ? r.types : r.type ? [r.type] : [];
+                    return (
+                        '<label><input type="checkbox" name="types" value="' +
+                        esc(t.id) +
+                        '"' +
+                        (selected.includes(t.id) ? ' checked' : '') +
+                        '> ' +
+                        esc(t.name) +
+                        '</label>'
+                    );
+                })
+                .join('') +
+            '</fieldset>' +
             '<label>Customer' +
             select('customer', lists.customers, r.customer, 'Select customer') +
             '</label><label>Project' +
@@ -490,7 +503,10 @@
         state.rules = Array.from(form.querySelectorAll('[data-rule]')).map(function (el) {
             var r = { id: state.rules[Number(el.dataset.rule)].id };
             el.querySelectorAll('[name]').forEach(function (x) {
-                r[x.name] = x.name === 'billable' ? x.value === 'true' : x.value;
+                if (x.name === 'types') {
+                    if (!r.types) r.types = [];
+                    if (x.checked) r.types.push(x.value);
+                } else r[x.name] = x.name === 'billable' ? x.value === 'true' : x.value;
             });
             return r;
         });

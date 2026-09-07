@@ -307,3 +307,11 @@ confirmation; flagged entries open the editor. Decisions return to the inbox.
 Remote-overlap feedback includes timestamps and rounding evidence, with a draft-only
 boundary adjustment requiring an explicit reviewed send. Standalone settings carry
 the originating theme and fall back to the stored MeshCentral/system preference.
+
+### Multi-type rules and concurrency (0.4.9)
+
+Rules persist a `types` array (empty means wildcard), with legacy `type` strings read compatibly. Group/device/type predicates remain conjunctive; selected types use membership and rule ordering stays first-match-wins. The editor uses labeled checkboxes rather than a native multi-select requiring modifier keys.
+
+Device toolbars scope status, clocks, popup selection, and quick stop by node and connection type. Only mapped sessions or open allocation contributors receive Kimai clocks; a closed contributor cannot inherit the status of a shared allocation still running elsewhere.
+
+After source lifecycle reconciliation, untouched automatic connected allocations are unioned transitively by project/activity/billable destination, including open-ended intervals. Merge preserves source membership, spans, strictest review policy and tags. Entries with drafts, errors or remote block history remain separate for review. Separate destinations retain overlap protection. Active totals remain unmergeable without event-level activity intervals; overlapping tracked sources require review instead of summation.
