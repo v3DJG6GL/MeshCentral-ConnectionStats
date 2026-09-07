@@ -65,7 +65,7 @@
     function fmtBytes(b) { b = b || 0; if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB'; return (b / 1073741824).toFixed(2) + ' GB'; }
     function fmtDate(t) { return F_DATE.format(new Date(t)); }
     function fmtDT(t) { return F_DT.format(new Date(t)); }
-    function isoDay(t) { var d = new Date(t); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+    function isoDay(t) { var d = new Date(t); return String(d.getFullYear()).padStart(4, '0') + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
     function sod(t) { var d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
     function label(b, bucket) { var d = new Date(b.s); if (bucket == 'hour') return p2(d.getHours()) + ':00'; if (bucket == 'day' || bucket == 'week') return F_DM.format(d); return d.getMonth() == 0 ? F_MY.format(d) : F_M.format(d); }
     function longLabel(b, bucket) {
@@ -103,6 +103,8 @@
     var ALL_START = 0;
 
     // ---------- state ----------
+    var LIMITS = [10, 25, 50, 100, 250];
+    var STATE_KEY = 'cs-filters:' + location.pathname + ':' + (BOOT.user || '') + ':' + (COMPACT ? 'device' : 'full');
     var S = {
         scope: BOOT.scope || 'all', types: {}, users: [], preset: 'week', start: 0, end: 0, bucket: 'auto',
         compare: true, guests: false, sel: null, pc: null, skip: 0, limit: savedLimit()
@@ -112,20 +114,19 @@
     var root = document.getElementById('cs-root');
 
     function applyPreset() { var p = PRESET[S.preset]; if (p && p.range) { var r = p.range(); S.start = r[0]; S.end = r[1]; } }
-    var LIMITS = [10, 25, 50, 100, 250];
     function savedLimit() {
         var d = 10;
         try { var v = Number(localStorage.getItem('cs-limit')); return LIMITS.indexOf(v) >= 0 ? v : d; } catch (e) { return d; }
     }
-    function readHash() {
-        var h = location.hash.replace(/^#/, ''); if (!h) return;
-        var o = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) o[decodeURIComponent(kv.substring(0, i))] = decodeURIComponent(kv.substring(i + 1)); });
+    function readHash(saved) {
+        var h = (saved || location.hash).replace(/^#/, ''); if (!h) return;
+        var o = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) { try { o[decodeURIComponent(kv.substring(0, i))] = decodeURIComponent(kv.substring(i + 1)); } catch (e) { } } });
         if (o.scope && !COMPACT) S.scope = o.scope;
-        if (o.preset && PRESET[o.preset]) S.preset = o.preset;
-        if (o.start && o.end) { S.start = Number(o.start); S.end = Number(o.end); S.preset = 'custom'; }
+        if (o.preset && Object.prototype.hasOwnProperty.call(PRESET, o.preset)) S.preset = o.preset;
+        if (o.start && o.end && isFinite(Number(o.start)) && isFinite(Number(o.end)) && Number(o.end) > Number(o.start) && Math.abs(Number(o.start)) <= 8640000000000000 && Math.abs(Number(o.end)) <= 8640000000000000) { S.start = Number(o.start); S.end = Number(o.end); S.preset = 'custom'; }
         if (o.types) { TYPES.forEach(function (t) { S.types[t.k] = false; }); o.types.split(',').forEach(function (k) { if (TYPE[k]) S.types[k] = true; }); }
         if (o.users) S.users = o.users.split(',');
-        if (o.bucket) S.bucket = o.bucket;
+        if (['auto', 'hour', 'day', 'week', 'month'].indexOf(o.bucket) >= 0) S.bucket = o.bucket;
         if (o.compare != null) S.compare = (o.compare == '1');
         if (o.guests != null) S.guests = (o.guests == '1');
     }
@@ -137,6 +138,7 @@
         if (S.users.length) o.users = S.users.join(',');
         if (S.bucket != 'auto') o.bucket = S.bucket;
         var h = '#' + qs(o);
+        try { localStorage.setItem(STATE_KEY, h); } catch (e) { }
         if (location.hash != h) { try { history.replaceState(null, '', h); } catch (e) { location.hash = h; } }
     }
     function activeTypes() { return TYPES.filter(function (t) { return S.types[t.k]; }).map(function (t) { return t.k; }); }
@@ -362,7 +364,7 @@
         if (META && META.canSeeUsers) h += '<select class="cs-sel" data-pick="user" aria-label="Admin"><option value="">All admins</option>' + META.users.map(function (u) { return '<option value="' + esc(u.id) + '"' + (S.users.length == 1 && S.users[0] == u.id ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('') + '</select>';
         h += '<button class="cs-chip' + (S.guests ? '' : ' off') + '" data-guests aria-pressed="' + S.guests + '" style="--c:#888" title="Device-share guests are kept separate and off by default"><i></i>Guests</button>';
         h += '<span class="cs-right"><span class="cs-seg" role="group" aria-label="Period">' + MAIN_PRESETS.map(function (k) { return '<button data-preset="' + k + '" class="' + (S.preset == k ? 'on' : '') + '">' + PRESET[k].n + '</button>'; }).join('') + '</span>';
-        if (S.preset == 'custom') h += '<span class="cs-custom"><input class="cs-in" type="date" data-date="start" value="' + isoDay(S.start) + '" aria-label="From"> to <input class="cs-in" type="date" data-date="end" value="' + isoDay(S.end - 1) + '" aria-label="To"></span>';
+        if (S.preset == 'custom') h += '<span class="cs-custom"><input class="cs-in" type="date" data-date="start" value="' + isoDay(S.start) + '" aria-label="From"> to <input class="cs-in" type="date" data-date="end" value="' + isoDay(S.end - 1) + '" aria-label="To"><button class="cs-btn" data-act="apply-dates">Apply</button></span>';
         h += '<select class="cs-sel" data-pick="bucket" aria-label="Granularity"><option value="auto"' + (S.bucket == 'auto' ? ' selected' : '') + '>Auto</option>' + ['hour', 'day', 'week', 'month'].map(function (b) { return '<option value="' + b + '"' + (S.bucket == b ? ' selected' : '') + '>By ' + b + '</option>'; }).join('') + '</select>';
         var noCmp = (S.preset == 'all');
         h += '<button class="cs-btn' + (S.compare && !noCmp ? ' on' : '') + '" data-compare aria-pressed="' + (S.compare && !noCmp) + '"' + (noCmp ? ' disabled title="There is nothing before the oldest session to compare with"' : '') + '>Compare</button>';
@@ -448,6 +450,9 @@
     }
     function render() {
         if (BOOT.view == 'settings') { root.className = 'cs'; root.innerHTML = settingsPage(); return; }
+        // Native date inputs emit change for individual year digits. Keep the focused
+        // input intact during background refreshes so its editing segment is not lost.
+        if (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.date) return;
         var h = toolbar();
         if (ERR) h += '<div class="cs-empty"><b>Could not load</b><span class="cs-err">' + esc(ERR) + '</span></div>';
         else if (!DATA) h += '<div class="cs-empty"><b>Loading</b>Reading sessions from the server.</div>';
@@ -525,6 +530,7 @@
         if (t.classList && t.classList.contains('bar')) { var i = +t.dataset.i, ty = t.dataset.t; S.sel = (S.sel && S.sel.i == i && S.sel.t == ty) ? null : { i: i, t: ty }; S.pc = null; loadList(0); return; }
         if ((el = t.closest('[data-pc]'))) { var wd = +el.dataset.wd, hr = +el.dataset.h; S.pc = (S.pc && S.pc.wd == wd && S.pc.h == hr) ? null : { wd: wd, h: hr }; S.sel = null; loadList(0); return; }
         var act = (el = t.closest('[data-act]')) ? el.dataset.act : null;
+        if (act == 'apply-dates') { applyDates(); return; }
         if (act == 'clear') { ev.preventDefault(); S.sel = null; S.pc = null; loadList(0); return; }
         if (act == 'zoom') { ev.preventDefault(); if (S.sel) { var b = DATA.aggregate.buckets[S.sel.i]; S.start = b.s; S.end = b.e; S.preset = 'custom'; S.bucket = 'auto'; load(); } return; }
         if (act == 'prev') { loadList(Math.max(0, S.skip - S.limit)); return; }
@@ -542,15 +548,27 @@
         else if (t.dataset.pick == 'user') { S.users = t.value ? [t.value] : []; load(); }
         else if (t.dataset.pick == 'bucket') { S.bucket = t.value; load(); }
         else if (t.dataset.pick == 'limit') { S.limit = Number(t.value); try { localStorage.setItem('cs-limit', t.value); } catch (e) { } loadList(0); }
-        else if (t.dataset.date) {
-            var v = t.value.split('-').map(Number); if (v.length != 3 || !v[0]) return;
-            var d = new Date(v[0], v[1] - 1, v[2]).getTime();
-            if (t.dataset.date == 'start') S.start = d; else S.end = d + DAY;
-            if (S.end <= S.start) S.end = S.start + DAY;
-            S.preset = 'custom'; load();
-        }
     });
+    root.addEventListener('input', function (ev) {
+        if (ev.target.dataset.date) root.querySelectorAll('[data-date]').forEach(function (t) { t.setCustomValidity(''); });
+    });
+    function applyDates() {
+        var inputs = root.querySelectorAll('[data-date]'), dates = {};
+        for (var i = 0; i < inputs.length; i++) {
+            var t = inputs[i], v = t.value.split('-').map(Number);
+            t.setCustomValidity('');
+            if (!t.value || !t.checkValidity() || v.length != 3 || !v[0]) { t.setCustomValidity('Enter a complete date.'); t.reportValidity(); return; }
+            // setFullYear avoids the Date constructor's special handling of years 0–99.
+            var d = new Date(0); d.setHours(0, 0, 0, 0); d.setFullYear(v[0], v[1] - 1, v[2]);
+            if (t.dataset.date == 'end') d.setDate(d.getDate() + 1);
+            dates[t.dataset.date] = d.getTime();
+        }
+        if (!isFinite(dates.start) || !isFinite(dates.end)) return;
+        if (dates.end <= dates.start) { inputs[1].setCustomValidity('Choose an end date on or after the start date.'); inputs[1].reportValidity(); return; }
+        S.start = dates.start; S.end = dates.end; S.preset = 'custom'; load();
+    }
     root.addEventListener('keydown', function (ev) {
+        if (ev.key == 'Enter' && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); ev.target.blur(); applyDates(); return; }
         if (ev.key == 'Escape') { if (MENU) { MENU = false; render(); } else if (S.sel || S.pc) { S.sel = null; S.pc = null; loadList(0); } }
         if ((ev.key == 'Enter' || ev.key == ' ') && ev.target.classList && (ev.target.classList.contains('bar') || ev.target.classList.contains('pc'))) { ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
@@ -577,7 +595,11 @@
 
     // ---------- boot ----------
     if (BOOT.view == 'settings') { render(); loadSettings(); pollBackfill(); loadBackups(); pollRestore(); return; }
-    readHash();
+    // Explicit shared links win over saved preferences; device views keep their boot scope.
+    var saved = '';
+    if (!location.hash) { try { saved = localStorage.getItem(STATE_KEY) || ''; } catch (e) { } }
+    readHash(saved);
+    if (!location.hash && BOOT.scope) S.scope = BOOT.scope;
     if (S.preset != 'custom' || !S.start) applyPreset();
     get(API + '&api=meta').then(function (m) { META = m; }).catch(function (e) { ERR = e.message; }).then(function () { load(); });
 })();
