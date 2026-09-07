@@ -13,6 +13,23 @@
 const WINDOW_MS = 7 * 86400000;
 const MAX_DAYS = 36500;
 
+// Aggregate date coverage without logging device IDs, users or event contents.
+function observeCoverage(st, kind, time) {
+    if (!st.coverage) return;
+    var c = st.coverage[kind], t = time == null ? NaN : +new Date(time);
+    c.count++;
+    if (!isFinite(t)) { c.invalidTime++; return; }
+    c.first = c.first == null ? t : Math.min(c.first, t);
+    c.last = c.last == null ? t : Math.max(c.last, t);
+    var month = new Date(t).toISOString().slice(0, 7);
+    c.months[month] = (c.months[month] || 0) + 1;
+}
+function newCoverage() {
+    var out = {};
+    ['events', 'relay', 'supportedRelay', 'sessions'].forEach(function (k) { out[k] = { count: 0, first: null, last: null, invalidTime: 0, months: {} }; });
+    return out;
+}
+
 // Pair raw relay events (any order) and store every closed session the store does not have yet.
 // Updates st.found / st.imported / st.skipped. Backup records also fill missing names
 // on existing sessions (st.updated), preserving their timing and activity data.
@@ -26,6 +43,7 @@ function importEvents(ctx, all, st, source, records) {
         else { var d = pairer.onEnd(c); if (d != null) closed.push(d); }
     });
     st.found = closed.length;
+    closed.forEach(function (doc) { observeCoverage(st, 'sessions', doc.start); });
     var work = Promise.resolve();
     closed.forEach(function (doc) {
         work = work.then(function () {
@@ -79,14 +97,28 @@ function run(ctx, opts) {
     var msgids = ctx.events.START_MSGIDS.concat(ctx.events.END_MSGIDS);
     var days = Math.min(MAX_DAYS, Math.max(0, Math.floor(Number(opts && opts.days) || 0)));
     var domains = Object.keys((ctx.meshServer.config && ctx.meshServer.config.domains) || { '': {} });
+    st.coverage = newCoverage(); st.days = days;
     var now = Date.now(), floor = now - days * 86400000;
     var all = [];
+
+    function inspectEvents(docs) {
+        st.scanned += docs.length;
+        docs.forEach(function (e) {
+            if (!e) return;
+            observeCoverage(st, 'events', e.time);
+            if (e.etype == 'relay' && e.action == 'relaylog') {
+                observeCoverage(st, 'relay', e.time);
+                if (msgids.indexOf(Number(e.msgid)) >= 0) observeCoverage(st, 'supportedRelay', e.time);
+            }
+        });
+    }
 
     function readWindow(domain, start, end) {
         return new Promise(function (resolve, reject) {
             try {
                 ctx.meshServer.db.GetEventsTimeRange(['*'], domain, msgids, new Date(start), new Date(end - 1), function (err, docs) {
                     if (err || !Array.isArray(docs)) { reject(err || new Error('Invalid event query response')); return; }
+                    inspectEvents(docs);
                     // SQL backends ignore the msgid filter, so filter here as well
                     resolve(docs.filter(function (e) { return e && e.etype == 'relay' && e.action == 'relaylog' && msgids.indexOf(Number(e.msgid)) >= 0; }).map(function (e) { return Object.assign({}, e, { domain: domain }); }));
                 });
@@ -101,7 +133,6 @@ function run(ctx, opts) {
             var start = Math.max(floor, end - WINDOW_MS);
             st.windowFrom = start;
             return readWindow(domain, start, end).then(function (docs) {
-                st.scanned += docs.length;
                 docs.forEach(function (d) { all.push(d); });
                 end = start;
                 return step();
@@ -118,7 +149,7 @@ function run(ctx, opts) {
             try {
                 ctx.meshServer.db.GetAllEvents(function (err, docs) {
                     if (err || !Array.isArray(docs)) { reject(err || new Error('Invalid event query response')); return; }
-                    st.scanned = docs.length;
+                    inspectEvents(docs);
                     all = docs.filter(function (e) { return e && e.etype == 'relay' && e.action == 'relaylog' && msgids.indexOf(Number(e.msgid)) >= 0; });
                     resolve();
                 });
@@ -128,7 +159,7 @@ function run(ctx, opts) {
 
     st.promise = days == 0 ? readAll() : domains.reduce(function (p, d) { return p.then(function () { return walkDomain(d); }); }, Promise.resolve());
     st.promise = st.promise.then(function () { st.phase = 'importing'; return importAll(); })
-    .then(function () { st.running = false; st.finishedAt = Date.now(); ctx.log('backfill: scanned ' + st.scanned + ' events, ' + st.found + ' sessions, imported ' + st.imported + ', skipped ' + st.skipped); return st; })
+    .then(function () { st.running = false; st.finishedAt = Date.now(); ctx.log('backfill coverage (UTC, ' + (days == 0 ? 'all history via GetAllEvents' : days + ' days via GetEventsTimeRange') + '): ' + JSON.stringify(st.coverage)); ctx.log('backfill: scanned ' + st.scanned + ' events, ' + st.found + ' sessions, imported ' + st.imported + ', skipped ' + st.skipped); return st; })
     .catch(function (e) { st.running = false; st.finishedAt = Date.now(); st.error = (e && e.message) || String(e); ctx.log('backfill error: ' + st.error); return st; });
     return st;
 }

@@ -311,7 +311,7 @@ module.exports.connectionstats = function (parent) {
     obj.backfillInfo = function () {
         var st = obj.backfillStatus;
         if (st == null) return { running: false };
-        return { running: st.running, startedAt: st.startedAt, finishedAt: st.finishedAt, scanned: st.scanned, found: st.found, imported: st.imported, skipped: st.skipped, windowFrom: st.windowFrom, error: st.error };
+        return { running: st.running, startedAt: st.startedAt, finishedAt: st.finishedAt, scanned: st.scanned, found: st.found, imported: st.imported, skipped: st.skipped, windowFrom: st.windowFrom, days: st.days, coverage: st.coverage, error: st.error };
     };
 
     // ------------------------------------------------------------------

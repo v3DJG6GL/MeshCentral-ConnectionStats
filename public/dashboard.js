@@ -407,6 +407,24 @@
 
     // ---------- settings page (site admins) ----------
     var SET = null, SETMSG = '', BF = null, bfTimer = null, BK = null, RS = null, RSMSG = '', rsTimer = null, rsSel = '';
+    function backfillCoverage(st) {
+        var c = st.coverage;
+        if (!c || st.running) return '';
+        var kinds = ['events', 'relay', 'supportedRelay', 'sessions'], months = {};
+        kinds.forEach(function (k) { Object.keys(c[k].months).forEach(function (m) { months[m] = true; }); });
+        var keys = Object.keys(months).sort(), rows = [];
+        if (keys.length) {
+            var d = new Date(keys[0] + '-01T00:00:00Z'), last = keys[keys.length - 1];
+            while (d.toISOString().slice(0, 7) <= last) {
+                var month = d.toISOString().slice(0, 7);
+                rows.push('<tr><td>' + esc(month) + '</td>' + kinds.map(function (k) { return '<td class="num">' + (c[k].months[month] || 0) + '</td>'; }).join('') + '</tr>');
+                d.setUTCMonth(d.getUTCMonth() + 1);
+            }
+        }
+        return '<details class="cs-note"><summary>Database import coverage (' + (st.days == 0 ? 'all history' : esc(st.days) + ' days') + ')</summary>'
+            + '<p>Counts by UTC month. Sessions include existing sessions that were skipped. Zero relay events means the query returned no connection events for that month.</p>'
+            + '<div class="cs-tscroll"><table class="cs-table"><thead><tr><th>Month (UTC)</th><th>Events returned</th><th>Relay events</th><th>Supported relay events</th><th>Sessions found</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div></details>';
+    }
     function settingsPage() {
         var h = '<div class="cs-bar"><b>Connection Stats settings</b><span class="cs-right"><a class="cs-btn" href="' + API + '">Back to the dashboard</a></span></div>';
         if (ERR) return h + '<div class="cs-empty"><b>Could not load</b><span class="cs-err">' + esc(ERR) + '</span></div>';
@@ -425,6 +443,7 @@
         var bf = BF || SET.backfill || { running: false };
         var bfText = bf.running ? 'Importing: ' + (bf.scanned || 0) + ' events read, ' + (bf.found || 0) + ' sessions found, ' + (bf.imported || 0) + ' imported so far' + (bf.windowFrom ? ', reading back to ' + fmtDate(bf.windowFrom) : '') + '.' : bf.finishedAt ? 'Last import ' + fmtDT(bf.finishedAt) + ': ' + bf.scanned + ' events read, ' + bf.found + ' sessions found, ' + bf.imported + ' imported, ' + bf.skipped + ' already known.' + (bf.error ? ' Error: ' + bf.error : '') : 'Not run in this server session.';
         h += '<div class="cs-card"><h5>Import past sessions from MeshCentral\'s event log</h5><p class="cs-note" style="margin:0">Import directly from the live database. Set days back to 0 to read all retained events, including older history still present in the database. Existing sessions are skipped.</p><div class="cs-bar"><input class="cs-in" type="number" min="0" max="36500" id="cs-bfdays" value="0" style="width:80px"> days back (0 = all history) <button class="cs-btn" data-act="backfill"' + (bf.running ? ' disabled' : '') + '>Import now</button><span class="cs-note">' + esc(bfText) + '</span></div></div>';
+        h += backfillCoverage(bf);
         h += restoreCard();
         if (st.retentionDays > 0) h += '<div class="cs-card"><h5>Retention</h5><div class="cs-bar"><button class="cs-btn" data-act="sweep">Remove sessions older than ' + esc(st.retentionDays) + ' days now</button><span class="cs-note">Runs automatically every day.</span></div></div>';
         h += '<div class="cs-note">Connection Stats ' + esc(SET.version) + '</div>';

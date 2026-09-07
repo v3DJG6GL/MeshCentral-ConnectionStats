@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.14
+
+- Database imports report UTC date coverage and monthly counts for returned
+  events, relay events, supported relay events and sessions found. Import
+  details show empty months too, helping distinguish missing database history
+  from filtering or pairing issues. The server log identifies the query mode.
+
 ## 0.2.13
 
 - Connected-time and weekday/hour charts share immediate hover and keyboard-focus

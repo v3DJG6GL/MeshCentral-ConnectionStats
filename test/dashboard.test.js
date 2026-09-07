@@ -168,3 +168,20 @@ test('bars and weekday bubbles share totals, colored type rows and hover/focus b
     }
     assert.doesNotMatch(d.root.innerHTML, /class="pc[^>]*><title>/);
 });
+
+test('import coverage displays empty months between returned records', async () => {
+    const coverage = {};
+    for (const kind of ['events', 'relay', 'supportedRelay', 'sessions']) coverage[kind] = {
+        count: 2, first: Date.UTC(2026, 0, 1), last: Date.UTC(2026, 8, 1), invalidTime: 0,
+        months: { '2026-01': 1, '2026-09': 1 }
+    };
+    const d = dashboard({ boot: { view: 'settings' }, response: url => {
+        if (url.includes('api=settings')) return { settings: { retentionDays: 0, recordTypes: [], activity: {} } };
+        if (url.includes('api=backfill')) return { running: false, finishedAt: Date.now(), days: 0, coverage };
+        return {};
+    } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(d.root.innerHTML, /Database import coverage \(all history\)/);
+    assert.match(d.root.innerHTML, /2026-02<\/td>(<td class="num">0<\/td>){4}/);
+    assert.match(d.root.innerHTML, /2026-08<\/td>(<td class="num">0<\/td>){4}/);
+});

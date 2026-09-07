@@ -31,7 +31,7 @@ test('backfill pairs stored events, skips known sessions and scans through empty
     assert.equal(st.running, true);
     await st.promise;
     assert.equal(st.running, false);
-    assert.equal(st.scanned, 5);
+    assert.equal(st.scanned, 6); // includes the non-relay event returned by the database
     assert.equal(st.found, 2);
     assert.equal(st.imported, 1);
     assert.equal(st.skipped, 1);
@@ -78,4 +78,28 @@ test('database read failures are reported instead of treated as empty history', 
         const st = backfill.run(ctx, { days }); await st.promise;
         assert.match(st.error, /database unavailable/); assert.equal(st.running, false);
     }
+});
+
+test('coverage distinguishes missing history, unsupported relay events and existing sessions', async () => {
+    const t = Date.UTC(2026, 8, 1), logs = [];
+    const docs = [
+        { time: new Date(Date.UTC(2026, 1, 1)), action: 'login' },
+        relay(9999, 2, ['unknown'], { time: new Date(Date.UTC(2026, 2, 1)) }),
+        relay(15, 2, ['recent', 'a', 'b'], { time: new Date(t) }),
+        relay(11, 2, ['recent', 'a', 'b', 60], { time: new Date(t + 60000) })
+    ];
+    const ctx = { events, log: line => logs.push(line), meshServer: { db: { GetAllEvents: cb => cb(null, docs) } },
+        db: { getSession: async () => ({ _id: 's_recent' }) } };
+    const st = backfill.run(ctx, { days: 0 }); await st.promise;
+    assert.equal(st.error, null); assert.equal(st.imported, 0); assert.equal(st.skipped, 1);
+    assert.equal(st.coverage.events.count, 4);
+    assert.equal(st.coverage.events.first, Date.UTC(2026, 1, 1));
+    assert.equal(st.coverage.relay.count, 3);
+    assert.equal(st.coverage.relay.months['2026-02'], undefined);
+    assert.equal(st.coverage.relay.months['2026-03'], 1);
+    assert.equal(st.coverage.supportedRelay.months['2026-03'], undefined);
+    assert.equal(st.coverage.supportedRelay.months['2026-09'], 2);
+    assert.equal(st.coverage.sessions.months['2026-09'], 1);
+    assert.ok(logs.some(line => line.includes('all history via GetAllEvents')));
+    assert.ok(logs.every(line => !line.includes('user//admin') && !line.includes('node//abc')));
 });
