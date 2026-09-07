@@ -18,6 +18,8 @@ module.exports.connectionstats = function (parent) {
     obj.settings = null;
     obj.pairer = null;
     obj.events = require(__dirname + '/events.js');
+    obj.aggregate = require(__dirname + '/aggregate.js');
+    obj.perms = new (require(__dirname + '/permissions.js').Permissions)(obj.meshServer);
 
     var PLUGIN_VERSION = (function () { try { return require(__dirname + '/config.json').version; } catch (e) { return '0.0.0'; } })();
 
@@ -191,8 +193,135 @@ module.exports.connectionstats = function (parent) {
 
     obj.isAdmin = function (user) { return (user != null) && (user.siteadmin == 0xFFFFFFFF); };
 
+    // ------------------------------------------------------------------
+    //  JSON API used by the dashboard page: GET /pluginadmin.ashx?pin=connectionstats&api=...
+    //  Authentication is done by MeshCentral before handleAdminReq is called; the scope of
+    //  every query is intersected with what the user may see (permissions.js).
+    // ------------------------------------------------------------------
+    var csv = function (v, max) { if (typeof v != 'string' || v == '') return null; return v.split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x != ''; }).slice(0, max || 50); };
+    var intq = function (v, dflt) { var n = Math.floor(Number(v)); return isFinite(n) ? n : dflt; };
+
+    // request -> { start, end, bucket, tz, scope, types, userids, includeGuests, compare }
+    obj.parseQuery = function (q) {
+        var now = Date.now();
+        var end = intq(q.end, now), start = intq(q.start, end - 7 * 86400000);
+        if (end - start > 5 * 366 * 86400000) start = end - 5 * 366 * 86400000;   // five years at most per query
+        if (end < start) { var t = start; start = end; end = t; }
+        var tz = (typeof q.tz == 'string' && q.tz.length < 64) ? q.tz : 'UTC';
+        var bucket = (obj.aggregate.BUCKETS.indexOf(q.bucket) >= 0) ? q.bucket : obj.aggregate.autoBucket(start, end);
+        // a year of hour buckets would be 8760 bars: refuse silly combinations
+        var edges = obj.aggregate.bucketEdges(start, end, bucket, tz).length;
+        if (edges > 800) bucket = obj.aggregate.autoBucket(start, end);
+        return {
+            start: start, end: end, bucket: bucket, tz: tz,
+            scope: (typeof q.scope == 'string' && q.scope.length < 300) ? q.scope : 'all',
+            types: csv(q.types, 10), userids: csv(q.users, 200),
+            includeGuests: (q.guests == '1'), compare: (q.compare == '1')
+        };
+    };
+
+    obj.apiQuery = function (user, q) {
+        var p = obj.parseQuery(q);
+        return obj.perms.filterFor(user, p).then(function (f) {
+            if (f == null) return { error: 'Not allowed to see this scope', status: 403 };
+            var work = [obj.db.findSessions(f)];
+            var prevRange = null;
+            if (p.compare) {
+                prevRange = obj.aggregate.previousRange(p.start, p.end, p.bucket, p.tz);
+                work.push(obj.db.findSessions(Object.assign({}, f, { start: prevRange.start, end: prevRange.end })));
+            }
+            work.push(obj.db.listSessions(f, { skip: 0, limit: intq(q.limit, 25) }));
+            return Promise.all(work).then(function (r) {
+                var out = { query: p, filter: { scope: p.scope, userids: f.userids || null }, aggregate: obj.aggregate.aggregate(r[0], { start: p.start, end: p.end, bucket: p.bucket, tz: p.tz }) };
+                if (p.compare) out.previous = obj.aggregate.aggregate(r[1], { start: prevRange.start, end: prevRange.end, bucket: p.bucket, tz: p.tz });
+                var list = r[r.length - 1];
+                out.sessions = { rows: list.rows.map(obj.sessionRow), total: list.total };
+                return out;
+            });
+        });
+    };
+
+    obj.apiSessions = function (user, q) {
+        var p = obj.parseQuery(q);
+        return obj.perms.filterFor(user, p).then(function (f) {
+            if (f == null) return { error: 'Not allowed to see this scope', status: 403 };
+            return obj.db.listSessions(f, { skip: intq(q.skip, 0), limit: intq(q.limit, 50) }).then(function (list) {
+                return { rows: list.rows.map(obj.sessionRow), total: list.total, skip: intq(q.skip, 0) };
+            });
+        });
+    };
+
+    // the fields the page needs, nothing more
+    obj.sessionRow = function (d) {
+        return {
+            id: d._id, nodeid: d.nodeid, node: d.nodename || d.nodeid, meshid: d.meshid, group: d.meshname || null,
+            user: d.username || d.userid, userid: d.userid, guest: d.guest || null, type: d.type,
+            start: d.start, end: d.end, seconds: d.seconds, active: d.active, bytesin: d.bytesin, bytesout: d.bytesout,
+            ip: d.ip || null, truncated: !!d.truncated, source: d.source
+        };
+    };
+
+    // groups, devices and admins the user may pick from
+    obj.apiMeta = function (user) {
+        return obj.perms.visibleScope(user).then(function (vis) {
+            var meshes = obj.meshServer.webserver.meshes || {}, groups = [], devices = [], users = [];
+            var domain = user.domain || '';
+            return new Promise(function (resolve) {
+                obj.meshServer.db.GetAllTypeNoTypeField('node', domain, function (err, nodes) {
+                    var allowed = {};
+                    (nodes || []).forEach(function (n) {
+                        if (n == null || typeof n._id != 'string') return;
+                        if (!vis.all && vis.nodeids.indexOf(n._id) < 0) return;
+                        if (devices.length < 5000) devices.push({ id: n._id, name: n.name || n._id, meshid: n.meshid || null });
+                        if (n.meshid) allowed[n.meshid] = 1;
+                    });
+                    for (var mid in meshes) {
+                        var m = meshes[mid];
+                        if (m == null || m.deleted != null || (m.domain || '') != domain) continue;
+                        if (!vis.all && vis.meshids.indexOf(mid) < 0 && !allowed[mid]) continue;
+                        groups.push({ id: mid, name: m.name || mid });
+                    }
+                    if (vis.userids == 'all') {
+                        var all = obj.meshServer.webserver.users || {};
+                        for (var uid in all) { var u = all[uid]; if (u && (u.domain || '') == domain) users.push({ id: uid, name: u.name || uid }); }
+                    } else {
+                        users.push({ id: user._id, name: user.name || user._id });
+                    }
+                    groups.sort(function (a, b) { return a.name.localeCompare(b.name); });
+                    devices.sort(function (a, b) { return a.name.localeCompare(b.name); });
+                    users.sort(function (a, b) { return a.name.localeCompare(b.name); });
+                    resolve({
+                        groups: groups, devices: devices, users: users, canSeeUsers: (vis.userids == 'all'), isAdmin: obj.isAdmin(user),
+                        me: { id: user._id, name: user.name || user._id }, types: obj.events.TYPES,
+                        settings: { activity: obj.settings ? obj.settings.activity : null, tz: obj.settings ? obj.settings.tz : '' },
+                        version: PLUGIN_VERSION
+                    });
+                });
+            });
+        });
+    };
+
+    obj.handleApi = function (req, res, user) {
+        var api = String(req.query.api);
+        var work;
+        if (api == 'query') work = obj.apiQuery(user, req.query);
+        else if (api == 'sessions') work = obj.apiSessions(user, req.query);
+        else if (api == 'meta') work = obj.apiMeta(user);
+        else { res.status(404).json({ error: 'unknown api' }); return; }
+        work.then(function (r) {
+            if (r != null && r.error != null) { res.status(r.status || 400).json({ error: r.error }); return; }
+            res.set('Cache-Control', 'no-store');
+            res.json(r);
+        }).catch(function (e) {
+            console.log('CONNSTATS: api error: ' + (e && e.stack ? e.stack : e));
+            res.status(500).json({ error: 'internal error' });
+        });
+    };
+
     // Admin page: My Server > Plugins > Connection Stats (GET /pluginadmin.ashx?pin=connectionstats)
     obj.handleAdminReq = function (req, res, user) {
+        if (obj.db == null) { res.status(503).send('Connection Stats is still starting'); return; }
+        if (req.query.api != null) { obj.handleApi(req, res, user); return; }
         res.set('Content-Type', 'text/html; charset=utf-8');
         res.send('<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;padding:20px">Connection Stats ' + PLUGIN_VERSION + ' is recording sessions. The dashboard arrives with the next build step.</body></html>');
     };
