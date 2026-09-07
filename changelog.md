@@ -1,3 +1,8 @@
+## 0.3.2 — 2026-09-07
+
+- Version all dashboard JavaScript/CSS URLs and prevent page caching so upgrades
+  cannot combine stale Kimai theme code with the updated theme initialization.
+
 ## 0.3.1 — 2026-09-07
 
 - Make Kimai settings inherit MeshCentral's dark theme and follow theme changes,

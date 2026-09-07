@@ -128,3 +128,21 @@ test('retention defaults to disabled, saves zero, and preserves existing positiv
     await plugin.saveSettings({ retentionDays: 0 }); assert.equal(stored.retentionDays, 0); assert.equal(applied, 0);
     await plugin.loadSettings(); assert.equal(plugin.settings.retentionDays, 0);
 });
+
+test('plugin pages version every asset and cannot cache stale boot information', () => {
+    const ms = { args: {}, pluginHandler: {} }; ms.pluginHandler.parent = ms;
+    const plugin = require('../connectionstats.js').connectionstats(ms.pluginHandler);
+    plugin.db = {};
+    const version = require('../config.json').version;
+    for (const view of ['kimai', 'settings', 'full']) {
+        let html; const headers = {};
+        plugin.handleAdminReq({ query: { view } }, {
+            set: (key, value) => { headers[key] = value; }, send: value => { html = value; }
+        }, { _id: 'user//admin', siteadmin: 0xFFFFFFFF });
+        assert.equal(headers['Cache-Control'], 'no-store');
+        const assets = Array.from(html.matchAll(/(?:href|src)="([^"]*file=[^"]+)"/g), match => match[1]);
+        assert.equal(assets.length, 4);
+        assert.ok(assets.every(url => url.endsWith('&amp;v=' + version)));
+        assert.ok(!html.includes('{{{assetVersion}}}'));
+    }
+});

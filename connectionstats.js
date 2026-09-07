@@ -735,6 +735,8 @@ module.exports.connectionstats = function (parent) {
         try {
             if (pageCache == null || obj.meshServer.args.debug) pageCache = require('fs').readFileSync(require('path').join(__dirname, 'views', 'admin.handlebars')).toString();
             var html = pageCache.replace('{{{bootJson}}}', JSON.stringify(boot).replace(/</g, '\\u003c'));
+            html = html.replace(/\{\{\{assetVersion\}\}\}/g, encodeURIComponent(PLUGIN_VERSION));
+            res.set('Cache-Control', 'no-store');
             res.set('Content-Type', 'text/html; charset=utf-8');
             res.set('Cache-Control', 'no-store');
             res.send(html);
