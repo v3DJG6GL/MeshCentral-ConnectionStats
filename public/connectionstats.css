@@ -103,6 +103,11 @@ button { font: inherit; }
 .cs-loading { opacity: .6; pointer-events: none; }
 .cs-custom { display: inline-flex; gap: 6px; align-items: center; }
 .cs-note { color: var(--m); font-size: 11px; }
+.cs-form { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
+.cs-set { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 8px; align-items: start; }
+.cs-set > label { color: var(--m); padding-top: 5px; }
+.cs-set .cs-in[type=number] { width: 90px; }
+a.cs-btn { text-decoration: none; display: inline-block; }
 @media (max-width: 760px) {
   .cs-grid { grid-template-columns: 1fr; }
   .cs-kpi .v { font-size: 18px; }

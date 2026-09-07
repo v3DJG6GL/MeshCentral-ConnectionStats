@@ -256,8 +256,52 @@
         if (S.preset == 'custom') h += '<span class="cs-custom"><input class="cs-in" type="date" data-date="start" value="' + isoDay(S.start) + '" aria-label="From"> to <input class="cs-in" type="date" data-date="end" value="' + isoDay(S.end - 1) + '" aria-label="To"></span>';
         h += '<select class="cs-sel" data-pick="bucket" aria-label="Granularity"><option value="auto"' + (S.bucket == 'auto' ? ' selected' : '') + '>Auto</option>' + ['hour', 'day', 'week', 'month'].map(function (b) { return '<option value="' + b + '"' + (S.bucket == b ? ' selected' : '') + '>By ' + b + '</option>'; }).join('') + '</select>';
         h += '<button class="cs-btn' + (S.compare ? ' on' : '') + '" data-compare aria-pressed="' + S.compare + '">Compare</button>';
-        h += '<span class="cs-menu-wrap"><button class="cs-btn primary" data-act="menu" aria-haspopup="true" aria-expanded="' + MENU + '">Export</button>' + (MENU ? exportMenu() : '') + '</span></span></div>';
+        h += '<span class="cs-menu-wrap"><button class="cs-btn primary" data-act="menu" aria-haspopup="true" aria-expanded="' + MENU + '">Export</button>' + (MENU ? exportMenu() : '') + '</span>';
+        if (BOOT.isAdmin && !COMPACT) h += '<a class="cs-btn" href="' + API + '&view=settings" title="Retention, recorded types, active time, import">Settings</a>';
+        h += '</span></div>';
         return h;
+    }
+
+    // ---------- settings page (site admins) ----------
+    var SET = null, SETMSG = '', BF = null, bfTimer = null;
+    function settingsPage() {
+        var h = '<div class="cs-bar"><b>Connection Stats settings</b><span class="cs-right"><a class="cs-btn" href="' + API + '">Back to the dashboard</a></span></div>';
+        if (ERR) return h + '<div class="cs-empty"><b>Could not load</b><span class="cs-err">' + esc(ERR) + '</span></div>';
+        if (!SET) return h + '<div class="cs-empty"><b>Loading</b></div>';
+        var st = SET.settings, a = st.activity || {};
+        var row = function (label, control, note) { return '<div class="cs-set"><label>' + label + '</label><div>' + control + (note ? '<div class="cs-note">' + note + '</div>' : '') + '</div></div>'; };
+        h += '<form id="cs-settings" class="cs-form">';
+        h += row('Keep sessions for', '<input class="cs-in" type="number" min="1" max="3650" name="retentionDays" value="' + esc(st.retentionDays) + '"> days', 'Closed sessions older than this are removed daily. Open sessions are never removed.');
+        h += row('Ignore sessions shorter than', '<input class="cs-in" type="number" min="0" max="3600" name="minSeconds" value="' + esc(st.minSeconds) + '"> seconds', 'Drops accidental clicks. 0 records everything.');
+        h += row('Record these types', '<span class="cs-chips">' + TYPES.map(function (t) { return '<label class="cs-chip' + (st.recordTypes.indexOf(t.k) >= 0 ? '' : ' off') + '" style="--c:' + t.c + '"><input type="checkbox" name="type" value="' + t.k + '"' + (st.recordTypes.indexOf(t.k) >= 0 ? ' checked' : '') + ' style="display:none"><i></i>' + t.n + '</label>'; }).join('') + '</span>', 'Sessions of a type that is off are not recorded at all.');
+        h += row('Active time', '<label><input type="checkbox" name="activityEnabled"' + (a.enabled !== false ? ' checked' : '') + '> Measure input in the Desktop, Terminal and Files views</label>', 'Only "still active" heartbeats leave the browser, never the input itself.');
+        h += row('Idle threshold', '<input class="cs-in" type="number" min="1" max="120" step="0.5" name="idleMinutes" value="' + esc(a.idleMinutes) + '"> minutes', 'Each heartbeat counts as this much active time. Overlaps merge.');
+        h += row('Heartbeat interval', '<input class="cs-in" type="number" min="10" max="300" name="beatSeconds" value="' + esc(a.beatSeconds) + '"> seconds', 'How often the browser reports input at most.');
+        h += row('Export time zone', '<input class="cs-in" type="text" name="tz" value="' + esc(st.tz || '') + '" placeholder="browser zone"> ', 'Optional IANA zone such as Europe/Zurich. Empty uses the viewer\'s browser zone.');
+        h += '<div class="cs-set"><label></label><div><button class="cs-btn primary" type="submit">Save settings</button> <span class="cs-note">' + esc(SETMSG) + '</span></div></div></form>';
+        var bf = BF || SET.backfill || { running: false };
+        var bfText = bf.running ? 'Importing: ' + (bf.scanned || 0) + ' events read, ' + (bf.found || 0) + ' sessions found, ' + (bf.imported || 0) + ' imported so far' + (bf.windowFrom ? ', reading back to ' + fmtDate(bf.windowFrom) : '') + '.' : bf.finishedAt ? 'Last import ' + fmtDT(bf.finishedAt) + ': ' + bf.scanned + ' events read, ' + bf.found + ' sessions found, ' + bf.imported + ' imported, ' + bf.skipped + ' already known.' + (bf.error ? ' Error: ' + bf.error : '') : 'Not run in this server session.';
+        h += '<div class="cs-card"><h5>Import past sessions from MeshCentral\'s event log</h5><p class="cs-note" style="margin:0">MeshCentral keeps relay events for 20 days by default. Importing reads them and adds any session this plugin does not have yet. Running it again is harmless.</p><div class="cs-bar"><input class="cs-in" type="number" min="1" max="400" id="cs-bfdays" value="' + esc(Math.min(400, st.retentionDays)) + '" style="width:80px"> days back <button class="cs-btn" data-act="backfill"' + (bf.running ? ' disabled' : '') + '>Import now</button><span class="cs-note">' + esc(bfText) + '</span></div></div>';
+        h += '<div class="cs-card"><h5>Retention</h5><div class="cs-bar"><button class="cs-btn" data-act="sweep">Remove sessions older than ' + esc(st.retentionDays) + ' days now</button><span class="cs-note">Runs automatically every day.</span></div></div>';
+        h += '<div class="cs-note">Connection Stats ' + esc(SET.version) + '</div>';
+        return h;
+    }
+    function postForm(fields) {
+        return fetch(API, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: qs(fields) })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error(j.error || ('Request failed (' + r.status + ')')); return j; }); });
+    }
+    function loadSettings() {
+        get(API + '&api=settings').then(function (s) { SET = s; ERR = null; render(); }).catch(function (e) { ERR = e.message; render(); });
+    }
+    function pollBackfill() {
+        if (bfTimer) clearTimeout(bfTimer);
+        get(API + '&api=backfill').then(function (b) { BF = b; render(); if (b.running) bfTimer = setTimeout(pollBackfill, 2000); }).catch(function () { });
+    }
+    function saveSettingsForm(form) {
+        var fd = new FormData(form), types = [];
+        form.querySelectorAll('input[name=type]:checked').forEach(function (i) { types.push(i.value); });
+        var st = { retentionDays: fd.get('retentionDays'), minSeconds: fd.get('minSeconds'), recordTypes: types, activity: { enabled: form.querySelector('input[name=activityEnabled]').checked, idleMinutes: fd.get('idleMinutes'), beatSeconds: fd.get('beatSeconds') }, tz: fd.get('tz') };
+        postForm({ action: 'settings', settings: JSON.stringify(st) }).then(function (j) { SET.settings = j.settings; SETMSG = 'Saved.'; render(); }).catch(function (e) { SETMSG = e.message; render(); });
     }
     function exportMenu() {
         return '<div class="cs-menu" role="menu">' + (window.CS_EXPORT_ITEMS ? window.CS_EXPORT_ITEMS() : '') +
@@ -265,6 +309,7 @@
             '<hr><button role="menuitem" data-act="copylink">Copy link to this view</button></div>';
     }
     function render() {
+        if (BOOT.view == 'settings') { root.className = 'cs'; root.innerHTML = settingsPage(); return; }
         var h = toolbar();
         if (ERR) h += '<div class="cs-empty"><b>Could not load</b><span class="cs-err">' + esc(ERR) + '</span></div>';
         else if (!DATA) h += '<div class="cs-empty"><b>Loading</b>Reading sessions from the server.</div>';
@@ -308,8 +353,16 @@
     window.addEventListener('resize', reportHeight);
 
     // ---------- events ----------
+    root.addEventListener('submit', function (ev) { if (ev.target.id == 'cs-settings') { ev.preventDefault(); saveSettingsForm(ev.target); } });
     root.addEventListener('click', function (ev) {
         var t = ev.target, el;
+        if (BOOT.view == 'settings') {
+            var a = (el = t.closest('[data-act]')) ? el.dataset.act : null;
+            if (a == 'backfill') { var days = document.getElementById('cs-bfdays').value; postForm({ action: 'backfill', days: days }).then(function () { pollBackfill(); }).catch(function (e) { SETMSG = e.message; render(); }); }
+            if (a == 'sweep') { postForm({ action: 'sweep' }).then(function (j) { SETMSG = 'Removed ' + j.removed + ' session(s).'; render(); }).catch(function (e) { SETMSG = e.message; render(); }); }
+            if (t.closest('label.cs-chip')) { setTimeout(function () { root.querySelectorAll('label.cs-chip').forEach(function (l) { l.classList.toggle('off', !l.querySelector('input').checked); }); }, 0); }
+            return;
+        }
         if ((el = t.closest('[data-preset]'))) { S.preset = el.dataset.preset; if (S.preset == 'custom') { if (!S.start) applyPreset(); } else applyPreset(); load(); return; }
         if ((el = t.closest('[data-type]'))) { S.types[el.dataset.type] = !S.types[el.dataset.type]; if (!activeTypes().length) S.types[el.dataset.type] = true; load(); return; }
         if ((el = t.closest('[data-scope]'))) { var k = el.dataset.scope; S.scope = k == 'all' ? 'all' : k == 'group' ? (META && META.groups[0] ? 'mesh:' + META.groups[0].id : 'all') : (META && META.devices[0] ? 'node:' + META.devices[0].id : 'all'); load(); return; }
@@ -357,6 +410,7 @@
     window.CS = { state: S, data: function () { return DATA; }, meta: function () { return META; }, api: API, qs: qs, queryParams: queryParams, tz: TZ, fmtDur: fmtDur, scopeName: scopeName, isoDay: isoDay, render: render, load: load, get: get };
 
     // ---------- boot ----------
+    if (BOOT.view == 'settings') { render(); loadSettings(); pollBackfill(); return; }
     readHash();
     if (S.preset != 'custom' || !S.start) applyPreset();
     get(API + '&api=meta').then(function (m) { META = m; }).catch(function (e) { ERR = e.message; }).then(function () { load(); });

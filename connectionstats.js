@@ -21,6 +21,8 @@ module.exports.connectionstats = function (parent) {
     obj.aggregate = require(__dirname + '/aggregate.js');
     obj.activity = require(__dirname + '/activity.js');
     obj.exporter = require(__dirname + '/export.js');
+    obj.backfill = require(__dirname + '/backfill.js');
+    obj.backfillStatus = null;
     obj.tracker = new obj.activity.Tracker(300);
     obj.perms = new (require(__dirname + '/permissions.js').Permissions)(obj.meshServer);
 
@@ -216,7 +218,7 @@ module.exports.connectionstats = function (parent) {
         obj.meshServer.pluginHandler.connectionstats_sub = obj;
         obj.meshServer.AddEventDispatch(['*'], obj);
 
-        obj.loadSettings().then(function () { return obj.restoreOpenSessions(); }).catch(function (e) {
+        obj.loadSettings().then(function () { return obj.restoreOpenSessions(); }).then(function () { return obj.maybeAutoBackfill(); }).catch(function (e) {
             console.log('CONNSTATS: startup error: ' + (e.message || e));
         });
         // heartbeats reach the store once a minute, so a crash loses at most a minute of active time
@@ -240,6 +242,37 @@ module.exports.connectionstats = function (parent) {
             });
             return work.then(function () { if (closed > 0) console.log('CONNSTATS: closed ' + closed + ' session(s) left open by the previous run'); });
         });
+    };
+
+    // ------------------------------------------------------------------
+    //  Backfill from MeshCentral's own events (first start, or on request)
+    // ------------------------------------------------------------------
+    obj.startBackfill = function (days) {
+        if (obj.backfillStatus != null && obj.backfillStatus.running) return obj.backfillStatus;
+        obj.backfillStatus = obj.backfill.run({
+            meshServer: obj.meshServer, db: obj.db, events: obj.events, resolveNames: obj.resolveNames,
+            log: function (m) { console.log('CONNSTATS: ' + m); }
+        }, { days: days || obj.settings.retentionDays });
+        obj.backfillStatus.promise.then(function () { obj.db.setSetting('backfill', { done: Date.now() }).catch(function () { }); });
+        return obj.backfillStatus;
+    };
+    // A fresh install imports what MeshCentral still has (20 days by default) so the dashboard is
+    // not empty on day one. Runs once; the settings page can run it again.
+    obj.maybeAutoBackfill = function () {
+        return obj.db.getSetting('backfill').then(function (b) {
+            if (b != null && b.done != null) return null;
+            return obj.db.listSessions({ domain: '', start: 0, end: Date.now() + 86400000, includeGuests: true }, { limit: 1 }).then(function (l) {
+                if (l.total > 0) return obj.db.setSetting('backfill', { done: Date.now(), skipped: true });
+                var t = setTimeout(function () { try { obj.startBackfill(); } catch (e) { } }, 15000);   // after the server has settled
+                try { t.unref(); } catch (e) { }
+                return null;
+            });
+        }).catch(function () { return null; });
+    };
+    obj.backfillInfo = function () {
+        var st = obj.backfillStatus;
+        if (st == null) return { running: false };
+        return { running: st.running, startedAt: st.startedAt, finishedAt: st.finishedAt, scanned: st.scanned, found: st.found, imported: st.imported, skipped: st.skipped, windowFrom: st.windowFrom, error: st.error };
     };
 
     // ------------------------------------------------------------------
@@ -504,6 +537,8 @@ module.exports.connectionstats = function (parent) {
         if (api == 'export') { obj.apiExport(req, res, user); return; }
         var work;
         if (api == 'query') work = obj.apiQuery(user, req.query);
+        else if (api == 'settings') work = Promise.resolve(obj.isAdmin(user) ? { settings: obj.settings, backfill: obj.backfillInfo(), types: obj.events.TYPES, version: PLUGIN_VERSION } : { error: 'Site administrators only', status: 403 });
+        else if (api == 'backfill') work = Promise.resolve(obj.isAdmin(user) ? obj.backfillInfo() : { error: 'Site administrators only', status: 403 });
         else if (api == 'sessions') work = obj.apiSessions(user, req.query);
         else if (api == 'meta') work = obj.apiMeta(user);
         else { res.status(404).json({ error: 'unknown api' }); return; }
@@ -558,8 +593,28 @@ module.exports.connectionstats = function (parent) {
         } catch (e) { res.status(500).send('Connection Stats page could not be rendered'); }
     };
 
+    // Settings and backfill changes come as form posts from the settings page. Site admins only.
     obj.handleAdminPostReq = function (req, res, user) {
-        res.sendStatus(401);
+        if (!obj.isAdmin(user)) { res.sendStatus(401); return; }
+        if (obj.db == null || req.body == null) { res.status(503).json({ ok: false, error: 'Connection Stats is still starting' }); return; }
+        var action = String(req.body.action || '');
+        if (action == 'settings') {
+            var parsed = null;
+            try { parsed = JSON.parse(String(req.body.settings || '')); } catch (e) { res.status(400).json({ ok: false, error: 'The settings are not valid JSON.' }); return; }
+            obj.saveSettings(parsed).then(function (st) { res.json({ ok: true, settings: st }); }, function (e) { res.status(500).json({ ok: false, error: 'Could not save: ' + (e.message || e) }); });
+            return;
+        }
+        if (action == 'backfill') {
+            var days = Math.min(400, Math.max(1, Math.floor(Number(req.body.days)) || obj.settings.retentionDays));
+            obj.startBackfill(days);
+            res.json({ ok: true, backfill: obj.backfillInfo() });
+            return;
+        }
+        if (action == 'sweep') {
+            obj.db.sweepRetention(obj.settings.retentionDays).then(function (n) { res.json({ ok: true, removed: n }); }, function (e) { res.status(500).json({ ok: false, error: e.message || String(e) }); });
+            return;
+        }
+        res.status(400).json({ ok: false, error: 'Unknown action' });
     };
 
     return obj;
