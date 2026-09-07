@@ -1,15 +1,16 @@
 # Changelog
 
-## 0.1.0
+## 0.1.1
 
 - **Night mode on the My Server > Plugins page**: the page now reads
   MeshCentral's night setting from the page that embeds it and follows changes
   live, instead of relying on a flag only the device tab passed.
-
 - **Tested on every backend**: the store contract, retention sweep and an
   end-to-end relay session run against real PostgreSQL, MariaDB, MySQL and
   MongoDB servers (Docker Compose locally, service containers on GitHub
   Actions) as well as NeDB and SQLite.
+
+## 0.1.0
 
 - **First release**: records every remote session MeshCentral relays (Desktop,
   Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, tunnels) into
