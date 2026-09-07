@@ -1,11 +1,11 @@
 {
   "name": "meshcentral-connectionstats",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "MeshCentral plugin: remote-session duration statistics per device, group and connection type",
   "license": "Apache-2.0",
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --test test/*.test.js",
     "test:live": "test/live.sh"
   },
   "devDependencies": {

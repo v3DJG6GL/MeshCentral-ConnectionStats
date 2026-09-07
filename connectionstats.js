@@ -520,7 +520,7 @@ module.exports.connectionstats = function (parent) {
                 prevRange = obj.aggregate.previousRange(p.start, p.end, p.bucket, p.tz);
                 work.push(obj.db.findSessions(Object.assign({}, f, { start: prevRange.start, end: prevRange.end })));
             }
-            work.push(obj.db.listSessions(f, { skip: 0, limit: intq(q.limit, 25) }));
+            work.push(obj.db.listSessions(f, { skip: 0, limit: Math.min(Math.max(intq(q.limit, 25), 1), 500) }));
             return Promise.all(work).then(function (r) {
                 var out = { query: p, filter: { scope: p.scope, userids: f.userids || null }, aggregate: obj.aggregate.aggregate(r[0], { start: p.start, end: p.end, bucket: p.bucket, tz: p.tz }) };
                 if (p.compare) out.previous = obj.aggregate.aggregate(r[1], { start: prevRange.start, end: prevRange.end, bucket: p.bucket, tz: p.tz });
@@ -535,7 +535,7 @@ module.exports.connectionstats = function (parent) {
         var p = obj.parseQuery(q);
         return obj.perms.filterFor(user, p).then(function (f) {
             if (f == null) return { error: 'Not allowed to see this scope', status: 403 };
-            var skip = intq(q.skip, 0), limit = intq(q.limit, 50);
+            var skip = intq(q.skip, 0), limit = Math.min(Math.max(intq(q.limit, 50), 1), 500);
             if (q.wd != null || q.hour != null) {
                 // a punchcard cell: sessions that start on that weekday and hour (local to tz). The
                 // store cannot filter by that, so page in memory over the range.

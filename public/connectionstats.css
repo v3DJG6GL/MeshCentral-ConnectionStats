@@ -94,6 +94,8 @@ button { font: inherit; }
 .cs-table tr.hl td { background: var(--on); }
 .cs-foot { display: flex; justify-content: space-between; color: var(--m); font-size: 11px; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cs-foot .pg { display: inline-flex; gap: 4px; align-items: center; }
+.cs-foot .pp { margin-right: 10px; }
+.cs-foot .pp .cs-sel { padding: 2px 4px; margin-left: 4px; }
 .cs-cal { overflow-x: auto; }
 .cs-empty { border: 1px dashed var(--r); border-radius: 4px; padding: 22px; text-align: center; color: var(--m); }
 .cs-empty b { display: block; color: var(--t); font-weight: normal; font-size: 13px; margin-bottom: 4px; }

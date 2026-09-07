@@ -88,13 +88,18 @@
     // ---------- state ----------
     var S = {
         scope: BOOT.scope || 'all', types: {}, users: [], preset: 'week', start: 0, end: 0, bucket: 'auto',
-        compare: true, guests: false, sel: null, pc: null, skip: 0, limit: COMPACT ? 8 : 12
+        compare: true, guests: false, sel: null, pc: null, skip: 0, limit: savedLimit()
     };
     TYPES.forEach(function (t) { S.types[t.k] = true; });
     var META = null, DATA = null, LIST = null, DAYLIST = null, ERR = null, LOADING = false, MENU = false;
     var root = document.getElementById('cs-root');
 
     function applyPreset() { var p = PRESET[S.preset]; if (p && p.range) { var r = p.range(); S.start = r[0]; S.end = r[1]; } }
+    var LIMITS = [10, 25, 50, 100, 250];
+    function savedLimit() {
+        var d = COMPACT ? 10 : 25;
+        try { var v = Number(localStorage.getItem('cs-limit')); return LIMITS.indexOf(v) >= 0 ? v : d; } catch (e) { return d; }
+    }
     function readHash() {
         var h = location.hash.replace(/^#/, ''); if (!h) return;
         var o = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) o[decodeURIComponent(kv.substring(0, i))] = decodeURIComponent(kv.substring(i + 1)); });
@@ -297,7 +302,8 @@
         var selTxt = S.sel ? 'Showing ' + TYPE[S.sel.t].n + ' sessions in ' + esc(longLabel(DATA.aggregate.buckets[S.sel.i], DATA.aggregate.bucket)) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a> <a href="#" data-act="zoom">Zoom in</a>'
             : S.pc ? 'Showing sessions that started ' + cellLabel(S.pc.wd, S.pc.h) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a>'
             : 'Showing ' + Math.min(S.skip + rows.length, n) + ' of ' + n + ' sessions';
-        s += '<div class="cs-foot"><span>' + selTxt + '</span><span class="pg"><button class="cs-btn" data-act="prev" ' + (page <= 1 ? 'disabled' : '') + '>&#8249;</button> Page ' + page + ' of ' + pages + ' <button class="cs-btn" data-act="next" ' + (page >= pages ? 'disabled' : '') + '>&#8250;</button></span></div>';
+        var sizes = '<label class="pp">Per page <select class="cs-sel" data-pick="limit" aria-label="Sessions per page">' + LIMITS.map(function (l) { return '<option value="' + l + '"' + (S.limit == l ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></label>';
+        s += '<div class="cs-foot"><span>' + selTxt + '</span><span class="pg">' + sizes + '<button class="cs-btn" data-act="prev" ' + (page <= 1 ? 'disabled' : '') + '>&#8249;</button> Page ' + page + ' of ' + pages + ' <button class="cs-btn" data-act="next" ' + (page >= pages ? 'disabled' : '') + '>&#8250;</button></span></div>';
         return s;
     }
     function delta(cur, prev, label) {
@@ -451,6 +457,18 @@
         try { window.parent.postMessage({ cs: 'height', h: root.offsetHeight + 16 }, '*'); } catch (e) { }
     }
     window.addEventListener('resize', reportHeight);
+    // On My Server > Plugins, MeshCentral gives its plugin iframe a fixed height that leaves a
+    // strip unused at the bottom. Same origin, so size the frame to what is really left.
+    function fitFrame() {
+        if (COMPACT || window.parent === window) return;
+        try {
+            var f = window.frameElement; if (!f || f.id != 'p43iframe' || !f.offsetParent) return;
+            var foot = window.parent.document.getElementById('footer'), fh = (foot && foot.offsetParent) ? foot.offsetHeight : 0;
+            var h = window.parent.innerHeight - f.getBoundingClientRect().top - fh - 6;
+            if (h > 200) { f.style.height = h + 'px'; f.style.maxHeight = h + 'px'; }
+        } catch (e) { }
+    }
+    try { if (!COMPACT && window.parent !== window) { fitFrame(); window.parent.addEventListener('resize', function () { setTimeout(fitFrame, 0); }); setTimeout(fitFrame, 500); } } catch (e) { }
 
     // ---------- events ----------
     root.addEventListener('submit', function (ev) { if (ev.target.id == 'cs-settings') { ev.preventDefault(); saveSettingsForm(ev.target); } });
@@ -490,6 +508,7 @@
         else if (t.dataset.pick == 'node') { S.scope = 'node:' + t.value; load(); }
         else if (t.dataset.pick == 'user') { S.users = t.value ? [t.value] : []; load(); }
         else if (t.dataset.pick == 'bucket') { S.bucket = t.value; load(); }
+        else if (t.dataset.pick == 'limit') { S.limit = Number(t.value); try { localStorage.setItem('cs-limit', t.value); } catch (e) { } loadList(0); }
         else if (t.dataset.date) {
             var v = t.value.split('-').map(Number); if (v.length != 3 || !v[0]) return;
             var d = new Date(v[0], v[1] - 1, v[2]).getTime();

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3
+
+- **Full height on My Server > Plugins**: the page sizes MeshCentral's plugin
+  frame to the space that is really left above the footer, instead of the
+  fixed height that left a strip unused and put a scrollbar inside the frame.
+- **Sessions per page**: the list footer has a 10 / 25 / 50 / 100 / 250
+  selector; the choice is remembered in the browser.
+- CI: the live-backend job no longer uses the `job.services` context in
+  job-level env (GitHub refused the whole workflow file), and the unit test
+  glob is expanded by the shell so Node 20 runs it too.
+
 ## 0.2.2
 
 - **Two new types instead of "Other"**: *Router tunnel* for MeshCentral
