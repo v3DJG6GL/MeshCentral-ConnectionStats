@@ -23,7 +23,7 @@ The dashboard is live: new and ended sessions appear within about ten seconds wh
 
 ### Session types
 
-Desktop, Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, Router tunnel (MeshCentral Router and other port tunnels, which carry no protocol so RDP, SSH, VNC or any forwarded port all land here), Plugin (data tunnels plugins open to the agent, for example the Event Log plugin's live view), Registry (the built-in registry editor), and everything else as "Other". For "Other" the share-by-type legend and the session list name the relay protocol, so you can tell an RDP relay from a tunnel a third-party plugin opened. Device-share guests are recorded separately with the guest name, are off by default in the dashboard, and never count into admin totals.
+Desktop, Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, Router tunnel (MeshCentral Router and other port tunnels, which carry no protocol so RDP, SSH, VNC or any forwarded port all land here), Plugin (data tunnels plugins open to the agent, for example the Event Log plugin's live view), Registry (MeshCentral's remote registry editor), and everything else as "Other". For "Other" the share-by-type legend and the session list name the relay protocol, so you can tell an RDP relay from a tunnel a third-party plugin opened. Device-share guests are recorded separately with the guest name, are off by default in the dashboard, and never count into admin totals.
 
 ![Night mode, one day](https://raw.githubusercontent.com/v3DJG6GL/MeshCentral-ConnectionStats/master/docs/night-day.png)
 
