@@ -1,0 +1,17 @@
+{
+  "name": "Connection Stats",
+  "shortName": "connectionstats",
+  "version": "0.1.0",
+  "description": "How long you were remoted into each device, split by Desktop, Terminal, Files and other connection types, per device or device group, at any zoom from an hour to a year. Everything on screen is exportable.",
+  "hasAdminPanel": true,
+  "homepage": "https://github.com/v3DJG6GL/MeshCentral-ConnectionStats",
+  "changelogUrl": "https://raw.githubusercontent.com/v3DJG6GL/MeshCentral-ConnectionStats/master/changelog.md",
+  "configUrl": "https://raw.githubusercontent.com/v3DJG6GL/MeshCentral-ConnectionStats/master/config.json",
+  "downloadUrl": "https://github.com/v3DJG6GL/MeshCentral-ConnectionStats/archive/master.zip",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/v3DJG6GL/MeshCentral-ConnectionStats.git"
+  },
+  "versionHistoryUrl": "https://api.github.com/repos/v3DJG6GL/MeshCentral-ConnectionStats/tags",
+  "meshCentralCompat": ">=1.1.0"
+}
