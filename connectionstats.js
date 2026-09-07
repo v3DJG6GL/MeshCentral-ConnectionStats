@@ -235,12 +235,12 @@ module.exports.connectionstats = function (parent) {
     // written before that are re-typed once, and the two new types start out recorded when
     // "Other" was.
     obj.retypeOnce = function () {
-        return obj.db.getSetting('retype_v2').then(function (done) {
+        return obj.db.getSetting('retype_v3').then(function (done) {
             if (done != null) return null;
             var work = Promise.resolve();
             if (obj.settings.recordTypes.indexOf('other') >= 0) {
                 var rt = obj.settings.recordTypes.slice();
-                ['tunnel', 'plugin'].forEach(function (t) { if (rt.indexOf(t) < 0) rt.push(t); });
+                ['tunnel', 'plugin', 'registry'].forEach(function (t) { if (rt.indexOf(t) < 0) rt.push(t); });
                 work = obj.saveSettings(Object.assign({}, obj.settings, { recordTypes: rt }));
             }
             // collect first, update after: an updated row leaves the "other" filter and would shift the paging
@@ -261,9 +261,9 @@ module.exports.connectionstats = function (parent) {
                 todo.forEach(function (x) { w = w.then(function () { n++; return obj.db.updateSession(x.id, { type: x.type }); }); });
                 return w;
             }).then(function () {
-                if (n) console.log('CONNSTATS: re-typed ' + n + ' "Other" sessions as tunnel or plugin');
+                if (n) console.log('CONNSTATS: re-typed ' + n + ' "Other" sessions as tunnel, plugin or registry');
                 obj.seq++;
-                return obj.db.setSetting('retype_v2', { at: Date.now(), count: n });
+                return obj.db.setSetting('retype_v3', { at: Date.now(), count: n });
             });
         }).catch(function (e) { console.log('CONNSTATS: retype error: ' + (e.message || e)); });
     };

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4
+
+- **Fits the frame**: charts are drawn at their pixel width instead of
+  scaling with the page, the list defaults to 10 sessions per page, and when
+  the frame is still too short the session table scrolls inside its card
+  rather than the whole page.
+- **Registry type** for the built-in registry editor (protocol 4); existing
+  records are re-typed once. Unknown protocols are labelled "protocol N".
+
 ## 0.2.3
 
 - **Full height on My Server > Plugins**: the page sizes MeshCentral's plugin

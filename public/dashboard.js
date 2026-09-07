@@ -18,14 +18,15 @@
         { k: 'amt', n: 'Intel AMT', c: '#EE6677' },
         { k: 'tunnel', n: 'Router tunnel', c: '#9970AB' },
         { k: 'plugin', n: 'Plugin', c: '#44AA99' },
+        { k: 'registry', n: 'Registry', c: '#EE8866' },
         { k: 'other', n: 'Other', c: '#BBBBBB' }
     ];
     var TYPE = {}; TYPES.forEach(function (t) { TYPE[t.k] = t; });
     // MeshCentral's relay protocol numbers. Anything that is not one of the named types lands in
     // "Other"; the number tells what it was. 0 means the relay was opened without a protocol,
     // which is what MeshCentral Router and other port tunnels do.
-    var PROTO = { 0: 'Router or port tunnel', 1: 'Terminal', 2: 'Desktop', 5: 'Files', 6: 'PowerShell', 7: 'Plugin data, e.g. Event Log live view', 8: 'Root shell', 9: 'Root PowerShell', 10: 'RDP relay', 11: 'SSH relay', 12: 'VNC relay', 13: 'SFTP relay', 14: 'Web-TCP relay', 100: 'Intel AMT', 101: 'Intel AMT', 200: 'Messenger', 201: 'Web RDP', 202: 'Web SSH', 203: 'Web SFTP' };
-    function protoName(p) { p = Number(p) || 0; return PROTO[p] || ('protocol ' + p + ', not one MeshCentral itself uses'); }
+    var PROTO = { 0: 'Router or port tunnel', 1: 'Terminal', 2: 'Desktop', 4: 'Registry editor', 5: 'Files', 6: 'PowerShell', 7: 'Plugin data, e.g. Event Log live view', 8: 'Root shell', 9: 'Root PowerShell', 10: 'RDP relay', 11: 'SSH relay', 12: 'VNC relay', 13: 'SFTP relay', 14: 'Web-TCP relay', 100: 'Intel AMT', 101: 'Intel AMT', 200: 'Messenger', 201: 'Web RDP', 202: 'Web SSH', 203: 'Web SFTP' };
+    function protoName(p) { p = Number(p) || 0; return PROTO[p] || ('protocol ' + p); }
     // only these views report input, so only they can show measured active time
     var ACTIVE_TYPES = { desktop: 1, terminal: 1, files: 1 };
     function activeCell(x) {
@@ -97,7 +98,7 @@
     function applyPreset() { var p = PRESET[S.preset]; if (p && p.range) { var r = p.range(); S.start = r[0]; S.end = r[1]; } }
     var LIMITS = [10, 25, 50, 100, 250];
     function savedLimit() {
-        var d = COMPACT ? 10 : 25;
+        var d = 10;
         try { var v = Number(localStorage.getItem('cs-limit')); return LIMITS.indexOf(v) >= 0 ? v : d; } catch (e) { return d; }
     }
     function readHash() {
@@ -178,9 +179,15 @@
     setInterval(function () { if (!document.hidden && DATA && !LOADING && DATA.aggregate.totals.ongoing) render(); }, 60000);
 
     // ---------- charts (inline SVG) ----------
+    // SVG charts are drawn at the pixel width they get, so text and bubbles keep their size
+    // instead of scaling with the page and eating its height.
+    function fullW() { return Math.max(320, (root.clientWidth || 1000) - 24 - 22); }
+    function mainW() { var cw = (root.clientWidth || 1000) - 24; return cw <= 760 ? cw - 22 : Math.floor((cw - 12) * 2.2 / 3.2) - 22; }
+    var lastW = 0;
+    window.addEventListener('resize', function () { var w = root.clientWidth; if (w && w != lastW && DATA) { lastW = w; render(); } });
     function niceMax(v) { if (v <= 0) return 1; var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10)); var m = v / e; var n = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10; return n * e; }
     function stackedBars(a, prev, sel) {
-        var W = 760, H = 250, L = 38, R = 8, T = 12, B = 26, bk = a.buckets, n = bk.length, bucket = a.bucket;
+        var W = mainW(), H = 200, L = 38, R = 8, T = 12, B = 26, bk = a.buckets, n = bk.length, bucket = a.bucket;
         if (!n) return '';
         var maxv = 0; bk.forEach(function (b) { maxv = Math.max(maxv, b.tot); }); if (prev) prev.buckets.forEach(function (b) { maxv = Math.max(maxv, b.tot); });
         var unit = maxv > 3600 ? 3600 : maxv > 60 ? 60 : 1, maxU = niceMax(maxv / unit), ticks = [0, .25, .5, .75, 1].map(function (x) { return x * maxU; });
@@ -246,7 +253,7 @@
     function cellLabel(dw, hh) { return DOW[dw] + ' ' + p2(hh) + ':00 to ' + p2((hh + 1) % 24) + ':00'; }
     function punchcard(pc, sel) {
         var max = 0; pc.forEach(function (r) { r.forEach(function (c) { max = Math.max(max, c.tot); }); }); max = max || 1;
-        var W = 760, H = 150, L = 30, T = 16, cw = (W - L) / 24, rh = (H - T) / 7;
+        var W = fullW(), H = 150, L = 30, T = 16, cw = (W - L) / 24, rh = (H - T) / 7;
         var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Connected time by weekday and hour of start">';
         for (var h = 0; h < 24; h += 3) s += '<text class="ax" x="' + (L + cw * h + cw / 2) + '" y="10" text-anchor="middle">' + p2(h) + '</text>';
         [1, 2, 3, 4, 5, 6, 0].forEach(function (dw, ri) {
@@ -443,10 +450,11 @@
                 else if (a.daily) h += '<div class="cs-card"><h5>Every day<span>darker is more time</span></h5><div class="cs-cal">' + calendar(a.daily, a.start, a.end) + '</div></div>';
                 else if (!COMPACT) h += '<div class="cs-card"><h5>When you connect<span>by weekday and hour of start, click a bubble to filter the list</span></h5>' + punchcard(a.punchcard, S.pc) + '</div>';
             }
-            h += '<div class="cs-card"><h5>Sessions' + (t.ongoing ? '<span class="cs-live">' + t.ongoing + ' ongoing, counted up to now</span>' : '') + '</h5>' + table(LIST || { rows: [], total: 0 }) + '</div>';
+            h += '<div class="cs-card cs-sess"><h5>Sessions' + (t.ongoing ? '<span class="cs-live">' + t.ongoing + ' ongoing, counted up to now</span>' : '') + '</h5>' + table(LIST || { rows: [], total: 0 }) + '</div>';
             h += '<div class="cs-note">* start or end not observed (server restart). Active time is measured from your input in the Desktop, Terminal and Files views; sessions from other clients show no data.</div>';
         }
-        root.className = 'cs' + (LOADING ? ' cs-loading' : '');
+        lastW = root.clientWidth;
+        root.className = 'cs' + (COMPACT ? ' cs-compact' : ' cs-full') + (LOADING ? ' cs-loading' : '');
         root.innerHTML = h;
         reportHeight();
     }

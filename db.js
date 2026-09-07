@@ -32,7 +32,7 @@ const NEDB_DELETE_CHUNK = 250;              // see removeInChunks()
 const COMPACTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_LIST_IDS = 5000;
 
-const TYPES = ['desktop', 'terminal', 'files', 'webapp', 'messenger', 'amt', 'tunnel', 'plugin', 'other'];
+const TYPES = ['desktop', 'terminal', 'files', 'webapp', 'messenger', 'amt', 'tunnel', 'plugin', 'registry', 'other'];
 
 // Resolve a module from the plugin folder first, then from MeshCentral's own node_modules
 // (plugins live in meshcentral-data/plugins, which is not always below MeshCentral's node_modules).

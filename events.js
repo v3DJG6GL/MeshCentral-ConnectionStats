@@ -23,7 +23,7 @@ const END = { 9: 'relay', 10: 'relay', 11: 'relay', 12: 'relay', 112: 'relay', 1
 const START_MSGIDS = Object.keys(START).map(Number);
 const END_MSGIDS = Object.keys(END).map(Number);
 
-const TYPES = ['desktop', 'terminal', 'files', 'webapp', 'messenger', 'amt', 'tunnel', 'plugin', 'other'];
+const TYPES = ['desktop', 'terminal', 'files', 'webapp', 'messenger', 'amt', 'tunnel', 'plugin', 'registry', 'other'];
 
 function typeOf(protocol) {
     if ([1, 6, 8, 9].indexOf(protocol) >= 0) return 'terminal';
@@ -34,6 +34,7 @@ function typeOf(protocol) {
     if (protocol == 100 || protocol == 101) return 'amt';
     // no protocol at all: a port tunnel (MeshCentral Router, or a relay opened with tcpport/udpport)
     if (protocol === 0) return 'tunnel';
+    if (protocol == 4) return 'registry'; // the built-in registry editor
     if (protocol == 7) return 'plugin';   // plugin data exchange, e.g. the Event Log plugin's live view
     return 'other';
 }

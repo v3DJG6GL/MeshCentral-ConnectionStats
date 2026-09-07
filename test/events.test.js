@@ -36,7 +36,7 @@ test('terminal protocols 1/6/8/9 map to terminal, files 5, messenger 200, amt 10
     assert.equal(ev.typeOf(200), 'messenger');
     assert.equal(ev.typeOf(100), 'amt'); assert.equal(ev.typeOf(101), 'amt');
     assert.equal(ev.typeOf(202), 'webapp');
-    assert.equal(ev.typeOf(undefined), 'other'); assert.equal(ev.typeOf(0), 'tunnel'); assert.equal(ev.typeOf(7), 'plugin'); assert.equal(ev.typeOf(4), 'other');
+    assert.equal(ev.typeOf(undefined), 'other'); assert.equal(ev.typeOf(0), 'tunnel'); assert.equal(ev.typeOf(7), 'plugin'); assert.equal(ev.typeOf(4), 'registry'); assert.equal(ev.typeOf(99), 'other');
 });
 
 test('web app sessions: id in msgArgs[0] on start, sessionid on end, seconds in msgArgs[0]', () => {
