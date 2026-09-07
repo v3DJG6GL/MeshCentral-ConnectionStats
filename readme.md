@@ -40,7 +40,7 @@ Manual install: clone this repository into `meshcentral-data/plugins/connections
 
 ## Storage
 
-Sessions are kept in the plugin's own store because MeshCentral's events expire after 20 days. The store follows MeshCentral's database: with PostgreSQL, MariaDB, MySQL or SQLite the sessions live in a `plugin_connectionstats_sessions` table inside MeshCentral's database; with MongoDB in a `plugin_connectionstats_sessions` collection; otherwise in `meshcentral-data/plugin-connectionstats-sessions.db`. Retention defaults to 365 days and never removes open sessions.
+Sessions are kept in the plugin's own store because MeshCentral's events expire after 20 days. The store follows MeshCentral's database: with PostgreSQL, MariaDB, MySQL or SQLite the sessions live in a `plugin_connectionstats_sessions` table inside MeshCentral's database; with MongoDB in a `plugin_connectionstats_sessions` collection; otherwise in `meshcentral-data/plugin-connectionstats-sessions.db`. Every backend is exercised by the test suite against a real server. Retention defaults to 365 days and never removes open sessions.
 
 ## Permissions
 
@@ -62,9 +62,15 @@ Tested with the classic web UI. The Bootstrap UI uses the same plugin hooks and 
 ## Development
 
 ```
+npm install
 npm test
 ```
-runs the unit tests with Node's built-in test runner. The store tests need `@seald-io/nedb` resolvable, for example through a `node_modules` symlink to a MeshCentral checkout; they are skipped otherwise.
+runs the unit tests with Node's built-in test runner, including the store contract on NeDB and SQLite (Node's built-in `node:sqlite` and the `sqlite3` driver MeshCentral uses).
+
+```
+npm run test:live
+```
+additionally runs the store contract, the retention sweep and an end-to-end relay session against real PostgreSQL, MariaDB, MySQL and MongoDB servers started with Docker Compose (`test/docker-compose.yml`, shifted ports, removed again afterwards). The same tests run on GitHub Actions for every push, see `.github/workflows/test.yml`; each backend is skipped when its `CS_TEST_*` connection URL is not set.
 
 ## License
 

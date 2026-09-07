@@ -5,6 +5,15 @@
   "description": "MeshCentral plugin: remote-session duration statistics per device, group and connection type",
   "license": "Apache-2.0",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test \"test/*.test.js\"",
+    "test:live": "test/live.sh"
+  },
+  "devDependencies": {
+    "@seald-io/nedb": "4.1.2",
+    "mariadb": "3.4.5",
+    "mongodb": "4.17.2",
+    "mysql2": "3.15.1",
+    "pg": "8.16.3",
+    "sqlite3": "5.1.7"
   }
 }

@@ -2,6 +2,11 @@
 
 ## 0.1.0
 
+- **Tested on every backend**: the store contract, retention sweep and an
+  end-to-end relay session run against real PostgreSQL, MariaDB, MySQL and
+  MongoDB servers (Docker Compose locally, service containers on GitHub
+  Actions) as well as NeDB and SQLite.
+
 - **First release**: records every remote session MeshCentral relays (Desktop,
   Terminal, Files, Web RDP/SSH/SFTP, Messenger, Intel AMT KVM, tunnels) into
   the plugin's own store on every MeshCentral database backend, and shows

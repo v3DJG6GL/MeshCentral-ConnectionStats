@@ -1,0 +1,50 @@
+# Database servers for the live store tests (test/db_live.test.js). Start with test/live.sh or
+#   docker compose -f test/docker-compose.yml up -d --wait
+# Ports are shifted so they never collide with a local database.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: meshcentral
+      POSTGRES_PASSWORD: meshcentral
+      POSTGRES_DB: meshcentral
+    ports: ["55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshcentral -d meshcentral"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: meshcentral
+      MARIADB_USER: meshcentral
+      MARIADB_PASSWORD: meshcentral
+    ports: ["33306:3306"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: meshcentral
+      MYSQL_USER: meshcentral
+      MYSQL_PASSWORD: meshcentral
+    ports: ["33307:3306"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mongodb:
+    image: mongo:6
+    ports: ["37017:27017"]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
