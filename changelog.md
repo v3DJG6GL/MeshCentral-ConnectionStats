@@ -1,3 +1,9 @@
+## 0.4.6 — 2026-09-08
+
+- Show progress labels and form-local success/error feedback for Kimai settings
+  actions. Preserve entered values on failure and identify unsaved rule changes.
+- Add visible hover, pressed, keyboard-focus and disabled states to settings buttons.
+
 ## 0.4.5 — 2026-09-08
 
 - Apply the selected review presentation consistently to manual device controls,

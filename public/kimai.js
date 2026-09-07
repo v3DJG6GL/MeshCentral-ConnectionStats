@@ -10,7 +10,8 @@
         preview,
         message = '',
         busy = false,
-        range = null;
+        range = null,
+        feedback = null;
     var lists = { customers: [], projects: [], activities: [] };
     function esc(v) {
         return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
@@ -339,6 +340,7 @@
                 : '<p>No entries synchronized yet.</p>') +
             '</section>';
         root.innerHTML = h;
+        showFeedback();
         root.querySelectorAll('button').forEach(function (b) {
             b.disabled = busy;
         });
@@ -371,21 +373,57 @@
         state.live = form.elements.live.checked;
         state.nightly = form.elements.nightly.checked;
     }
-    async function run(fn) {
+    function showFeedback() {
+        if (!feedback) return;
+        var host = feedback.form
+            ? root.querySelector('[data-form="' + feedback.form + '"]')
+            : root.querySelector('.cs-bar');
+        if (!host) host = root.querySelector('.cs-bar') || root;
+        var status = host.querySelector('[data-action-feedback]');
+        if (!status) {
+            status = document.createElement('p');
+            status.dataset.actionFeedback = '';
+            status.setAttribute('role', 'status');
+            status.setAttribute('aria-live', 'polite');
+            host.append(status);
+        }
+        status.className = 'km-feedback km-feedback-' + feedback.kind;
+        status.textContent = feedback.text;
+    }
+    async function run(fn, options) {
         if (busy) return;
+        options = options || {};
         busy = true;
-        root.querySelectorAll('button').forEach(function (b) {
+        message = '';
+        feedback = { form: options.form, kind: 'pending', text: options.pending || 'Working…' };
+        showFeedback();
+        root.setAttribute('aria-busy', 'true');
+        var buttons = Array.from(root.querySelectorAll('button')),
+            original = options.button && options.button.textContent;
+        buttons.forEach(function (b) {
             b.disabled = true;
         });
+        if (options.button) options.button.textContent = options.pending || 'Working…';
+        var completed = false;
         try {
             await fn();
-            message = 'Saved / completed. Check entry status below.';
+            completed = true;
+            feedback.kind = 'success';
+            feedback.text = options.success || 'Action completed.';
             await reload();
         } catch (e) {
-            message = e.message;
+            feedback.kind = 'error';
+            feedback.text = completed
+                ? (options.success || 'Action completed.') + ' Status refresh failed: ' + e.message
+                : e.message;
         } finally {
             busy = false;
-            render();
+            root.setAttribute('aria-busy', 'false');
+            if (options.button && options.button.isConnected) options.button.textContent = original;
+            root.querySelectorAll('button').forEach(function (b) {
+                b.disabled = false;
+            });
+            showFeedback();
         }
     }
     root.addEventListener('submit', function (ev) {
@@ -394,59 +432,82 @@
         ev.preventDefault();
         var fd = new FormData(f),
             op = f.dataset.form;
-        run(async function () {
-            if (op === 'server') await post({ op: op, url: fd.get('url') });
-            if (op === 'connect') {
-                var token = fd.get('token');
-                f.elements.token.value = '';
-                await post({ op: op, token: token });
-            }
-            if (op === 'recording-preferences') {
-                await post({
-                    op: 'device',
-                    command: 'preferences',
-                    requestId: crypto.randomUUID(),
-                    prompt: fd.get('prompt'),
-                    presentation: fd.get('presentation'),
-                    minSeconds: Number(fd.get('minSeconds')),
-                });
-            }
-            if (op === 'settings') {
-                captureRules();
-                await post({ op: op, rules: state.rules, live: state.live, nightly: state.nightly });
-            }
-            if (op === 'preview') {
-                var q = Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
-                range = { start: fd.get('start'), end: fd.get('end') };
-                q.startLocal = fd.get('start');
-                q.endLocal = fd.get('end');
-                preview = await post({ op: op, query: q });
-            }
-            if (op === 'send') {
-                var rows = Array.from(f.querySelectorAll('[data-row]'))
-                    .filter(function (r) {
-                        return r.querySelector('[name=include]').checked;
-                    })
-                    .map(function (r) {
-                        var b = { id: preview.rows[Number(r.dataset.row)].id };
-                        r.querySelectorAll('[name]').forEach(function (x) {
-                            if (x.name === 'begin' || x.name === 'end') b[x.name + 'Local'] = x.value;
-                            else b[x.name] = x.type === 'checkbox' ? x.checked : x.value;
-                        });
-                        return b;
-                    });
-                if (preview.resolve) {
-                    if (rows.length !== 1) throw Error('Select the replacement row');
+        run(
+            async function () {
+                if (op === 'server') await post({ op: op, url: fd.get('url') });
+                if (op === 'connect') {
+                    var token = fd.get('token');
+                    f.elements.token.value = '';
+                    await post({ op: op, token: token });
+                }
+                if (op === 'recording-preferences') {
                     await post({
-                        op: 'resolve',
-                        id: preview.resolve,
-                        choice: preview.choice || 'replace',
-                        row: rows[0],
+                        op: 'device',
+                        command: 'preferences',
+                        requestId: crypto.randomUUID(),
+                        prompt: fd.get('prompt'),
+                        presentation: fd.get('presentation'),
+                        minSeconds: Number(fd.get('minSeconds')),
                     });
-                } else await post({ op: op, preview: preview.id, rows: rows });
-                preview = null;
-            }
-        });
+                }
+                if (op === 'settings') {
+                    captureRules();
+                    await post({ op: op, rules: state.rules, live: state.live, nightly: state.nightly });
+                }
+                if (op === 'preview') {
+                    var q = Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
+                    range = { start: fd.get('start'), end: fd.get('end') };
+                    q.startLocal = fd.get('start');
+                    q.endLocal = fd.get('end');
+                    preview = await post({ op: op, query: q });
+                }
+                if (op === 'send') {
+                    var rows = Array.from(f.querySelectorAll('[data-row]'))
+                        .filter(function (r) {
+                            return r.querySelector('[name=include]').checked;
+                        })
+                        .map(function (r) {
+                            var b = { id: preview.rows[Number(r.dataset.row)].id };
+                            r.querySelectorAll('[name]').forEach(function (x) {
+                                if (x.name === 'begin' || x.name === 'end') b[x.name + 'Local'] = x.value;
+                                else b[x.name] = x.type === 'checkbox' ? x.checked : x.value;
+                            });
+                            return b;
+                        });
+                    if (preview.resolve) {
+                        if (rows.length !== 1) throw Error('Select the replacement row');
+                        await post({
+                            op: 'resolve',
+                            id: preview.resolve,
+                            choice: preview.choice || 'replace',
+                            row: rows[0],
+                        });
+                    } else await post({ op: op, preview: preview.id, rows: rows });
+                    preview = null;
+                }
+            },
+            {
+                form: op,
+                button: ev.submitter || f.querySelector('button[type=submit], button:not([type])'),
+                pending:
+                    op === 'connect'
+                        ? 'Testing connection…'
+                        : op === 'preview'
+                          ? 'Building preview…'
+                          : op === 'send'
+                            ? 'Sending…'
+                            : 'Saving…',
+                success:
+                    {
+                        server: 'Kimai server saved.',
+                        connect: 'Connection tested and token saved.',
+                        'recording-preferences': 'Recording preferences saved.',
+                        settings: 'Mapping rules and automation saved.',
+                        preview: 'Preview ready. Review the entries below.',
+                        send: 'Send completed. Check sync history for individual results.',
+                    }[op] || 'Saved.',
+            },
+        );
     });
     root.addEventListener('click', function (ev) {
         var b = ev.target.closest('button');
@@ -477,12 +538,22 @@
         }
         if (b.hasAttribute('data-add')) {
             captureRules();
+            feedback = {
+                form: 'settings',
+                kind: 'pending',
+                text: 'Rule added. Save rules and automation to apply it.',
+            };
             state.rules.push({ basis: 'connected', description: '{device}: {types} ({sessions} sessions)' });
             render();
         }
         if (b.hasAttribute('data-remove')) {
             captureRules();
             state.rules.splice(+b.dataset.remove, 1);
+            feedback = {
+                form: 'settings',
+                kind: 'pending',
+                text: 'Rule removed. Save rules and automation to apply the change.',
+            };
             render();
         }
         if (b.hasAttribute('data-move')) {
@@ -492,18 +563,34 @@
             if (j >= 0 && j < state.rules.length) {
                 var r = state.rules.splice(i, 1)[0];
                 state.rules.splice(j, 0, r);
+                feedback = {
+                    form: 'settings',
+                    kind: 'pending',
+                    text: 'Rule order changed. Save rules and automation to apply it.',
+                };
             }
             render();
         }
-        if (b.hasAttribute('data-refresh')) run(reload);
+        if (b.hasAttribute('data-refresh'))
+            run(async function () {}, { button: b, pending: 'Refreshing…', success: 'Status refreshed.' });
         if (b.hasAttribute('data-disconnect'))
-            run(function () {
-                return post({ op: 'disconnect' });
-            });
+            run(
+                function () {
+                    return post({ op: 'disconnect' });
+                },
+                { form: 'connect', button: b, pending: 'Disconnecting…', success: 'Kimai disconnected.' },
+            );
         if (b.hasAttribute('data-resolve'))
-            run(function () {
-                return post({ op: 'resolve', id: b.dataset.resolve, choice: b.dataset.choice });
-            });
+            run(
+                function () {
+                    return post({ op: 'resolve', id: b.dataset.resolve, choice: b.dataset.choice });
+                },
+                {
+                    button: b,
+                    pending: 'Applying…',
+                    success: 'Decision applied. Check sync history for the result.',
+                },
+            );
         if (b.hasAttribute('data-review')) {
             var l = state.history.find(function (l) {
                 return l.id === b.dataset.review;

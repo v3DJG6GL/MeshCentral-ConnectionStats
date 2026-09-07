@@ -1,0 +1,68 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const fs = require('node:fs');
+const path = require('node:path');
+function harness() {
+    const button = { textContent: 'Save preferences', isConnected: true },
+        statuses = [];
+    const host = { querySelector: () => statuses[0], append: (s) => statuses.push(s) };
+    const root = {
+        innerHTML: 'existing form values',
+        querySelector: () => host,
+        querySelectorAll: () => [button],
+        setAttribute() {},
+        addEventListener() {},
+    };
+    const context = {
+        window: { CS_BOOT: { view: 'kimai' } },
+        document: { getElementById: () => root, createElement: () => ({ dataset: {}, setAttribute() {} }) },
+        URLSearchParams,
+        Object,
+        Array,
+        Promise,
+    };
+    let code = fs.readFileSync(path.join(__dirname, '../public/kimai.js'), 'utf8');
+    code =
+        code.slice(0, code.lastIndexOf('    reload().catch')) +
+        '    window.testApi={run,setReload:function(fn){reload=fn;}};})();';
+    vm.runInNewContext(code, context);
+    context.window.testApi.setReload(async () => {});
+    return { api: context.window.testApi, button, statuses, root };
+}
+test('settings show pending and success feedback beside the submitted form', async () => {
+    const h = harness();
+    let finish;
+    const pending = new Promise((resolve) => {
+        finish = resolve;
+    });
+    const run = h.api.run(() => pending, {
+        form: 'recording-preferences',
+        button: h.button,
+        pending: 'Saving…',
+        success: 'Recording preferences saved.',
+    });
+    assert.equal(h.button.textContent, 'Saving…');
+    assert.equal(h.button.disabled, true);
+    assert.equal(h.statuses[0].textContent, 'Saving…');
+    finish();
+    await run;
+    assert.equal(h.statuses[0].textContent, 'Recording preferences saved.');
+    assert.match(h.statuses[0].className, /success/);
+    assert.equal(h.button.textContent, 'Save preferences');
+    assert.equal(h.button.disabled, false);
+});
+test('failed save retains form contents and displays actionable error', async () => {
+    const h = harness();
+    await h.api.run(
+        async () => {
+            throw Error('Connection timed out');
+        },
+        { form: 'settings', button: h.button },
+    );
+    assert.equal(h.root.innerHTML, 'existing form values');
+    assert.equal(h.statuses[0].textContent, 'Connection timed out');
+    assert.match(h.statuses[0].className, /error/);
+    assert.equal(h.button.disabled, false);
+});

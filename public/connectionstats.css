@@ -172,3 +172,16 @@ a.cs-btn { text-decoration: none; display: inline-block; }
 .km-table td input:not([type=checkbox]),.km-table td select { display:block; margin-bottom:6px; min-width:150px; }
 .km-panel input,.km-panel select,.km-panel button { color:inherit; background:var(--p); border:1px solid var(--r); border-radius:4px; padding:6px; }
 .km-panel input[type=checkbox] { min-width:auto; }
+
+/* Kimai settings: feedback stays with the action being performed. */
+.km-feedback { flex-basis:100%; margin:10px 0 0; padding:8px 10px; border-left:3px solid currentColor; background:var(--p); }
+.km-feedback-pending { color:var(--m); }
+.km-feedback-success { color:#237743; }
+.km-feedback-error { color:#b32d36; }
+.night .km-feedback-success { color:#85d8a1; }
+.night .km-feedback-error { color:#ff9ca5; }
+.km-panel button { cursor:pointer; }
+.km-panel button:hover:not(:disabled) { border-color:currentColor; }
+.km-panel button:active:not(:disabled) { transform:translateY(1px); }
+.km-panel button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+.km-panel button:disabled { opacity:.55; cursor:wait; }
