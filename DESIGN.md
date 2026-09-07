@@ -240,11 +240,12 @@ route; the client only hides controls.
 
 ## 6. Implementation recommendations
 
-- Charts: vendor Chart.js 4 UMD in `public/` and serve it from a plugin
-  route. No CDN, servers are often offline. Stacked bars, doughnut and the
-  session timeline (floating horizontal bars) come from Chart.js; punchcard
-  and calendar heatmap are inline SVG. uPlot lacks stacking, ApexCharts has a
-  restrictive licence, ECharts is five times the size.
+- Charts: implemented as inline SVG drawn by the page itself (stacked bars,
+  doughnut, punchcard, calendar, timeline). No library at all: the mockup's
+  renderers covered every chart, are theme-aware through CSS variables and
+  keyboard-focusable, and MeshCentral servers are often offline. Chart.js
+  4.3.3 ships with MeshCentral at `scripts/charts-min.js` should a canvas
+  chart ever be wanted.
 - Client: exported functions are `toString`-serialised, so each is
   self-contained and reaches peers via `pluginHandler.connectionstats`.
   Markup from strings with one escaping helper, `cs`-prefixed classes, one
