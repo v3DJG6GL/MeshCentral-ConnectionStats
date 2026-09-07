@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+- **Night mode on the My Server > Plugins page**: the page now reads
+  MeshCentral's night setting from the page that embeds it and follows changes
+  live, instead of relying on a flag only the device tab passed.
+
 - **Tested on every backend**: the store contract, retention sweep and an
   end-to-end relay session run against real PostgreSQL, MariaDB, MySQL and
   MongoDB servers (Docker Compose locally, service containers on GitHub

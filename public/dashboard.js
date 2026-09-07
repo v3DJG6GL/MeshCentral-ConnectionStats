@@ -401,9 +401,20 @@
     });
     window.addEventListener('hashchange', function () { readHash(); if (S.preset != 'custom') applyPreset(); load(); });
 
-    // night mode: from the boot flag or a message from the MeshCentral page that embeds us
+    // night mode: MeshCentral puts a 'night' class on its body. This page is embedded by the
+    // same origin (My Server > Plugins iframe, device tab iframe), so read the parent's body
+    // class directly and follow changes; the boot flag and a posted message are the fallbacks
+    // for the cases where the parent is not reachable.
     function setNight(on) { document.documentElement.classList.toggle('night', !!on); }
-    setNight(BOOT.night);
+    function parentBody() {
+        try { if (window.parent && window.parent !== window) return window.parent.document.body; } catch (e) { }
+        return null;
+    }
+    var pb = parentBody();
+    setNight(pb ? pb.classList.contains('night') : BOOT.night);
+    if (pb && typeof MutationObserver == 'function') {
+        try { new MutationObserver(function () { setNight(pb.classList.contains('night')); }).observe(pb, { attributes: true, attributeFilter: ['class'] }); } catch (e) { }
+    }
     window.addEventListener('message', function (ev) { var d = ev.data; if (d && d.cs == 'night') setNight(d.night); });
 
     // expose a little for the export module
