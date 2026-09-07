@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.8
+
+- No weekday in front of dates any more: the session list shows "7.9.2026, 19:08",
+  exactly like MeshCentral.
+
 ## 0.2.7
 
 - Dates are written the way MeshCentral itself writes them for the chosen

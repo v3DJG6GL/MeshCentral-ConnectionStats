@@ -45,9 +45,8 @@
     // numeric dates, as MeshCentral's toLocaleDateString gives them ("7.9.2026" for de-CH,
     // "07/09/2026" for en-GB); month names only where a chart axis needs them
     var F_DATE = dtf({ day: 'numeric', month: 'numeric', year: 'numeric' }),
-        F_DT = dtf({ weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        F_WDD = dtf({ weekday: 'short', day: 'numeric' }), F_DM = dtf({ day: 'numeric', month: 'numeric' }),
-        F_WDDM = dtf({ weekday: 'short', day: 'numeric', month: 'numeric' }), F_WDDMY = dtf({ weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric' }),
+        F_DT = dtf({ day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        F_DM = dtf({ day: 'numeric', month: 'numeric' }),
         F_M = dtf({ month: 'short' }), F_MY = dtf({ month: 'short', year: 'numeric' }), F_WD = dtf({ weekday: 'short' });
     // 2023-01-01 was a Sunday; the arrays keep MeshCentral's Sunday-first weekday index
     var DOW = [0, 1, 2, 3, 4, 5, 6].map(function (i) { return F_WD.format(new Date(2023, 0, 1 + i)); });
@@ -68,11 +67,11 @@
     function fmtDT(t) { return F_DT.format(new Date(t)); }
     function isoDay(t) { var d = new Date(t); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
     function sod(t) { var d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
-    function label(b, bucket) { var d = new Date(b.s); if (bucket == 'hour') return p2(d.getHours()) + ':00'; if (bucket == 'day') return F_WDD.format(d); if (bucket == 'week') return F_DM.format(d); return d.getMonth() == 0 ? F_MY.format(d) : F_M.format(d); }
+    function label(b, bucket) { var d = new Date(b.s); if (bucket == 'hour') return p2(d.getHours()) + ':00'; if (bucket == 'day' || bucket == 'week') return F_DM.format(d); return d.getMonth() == 0 ? F_MY.format(d) : F_M.format(d); }
     function longLabel(b, bucket) {
         var d = new Date(b.s);
-        if (bucket == 'hour') return F_WDDM.format(d) + ', ' + p2(d.getHours()) + ':00 to ' + p2(new Date(b.e).getHours()) + ':00';
-        if (bucket == 'day') return F_WDDMY.format(d);
+        if (bucket == 'hour') return F_DATE.format(d) + ', ' + p2(d.getHours()) + ':00 to ' + p2(new Date(b.e).getHours()) + ':00';
+        if (bucket == 'day') return F_DATE.format(d);
         if (bucket == 'week') return 'Week of ' + fmtDate(b.s);
         return F_MY.format(d);
     }
