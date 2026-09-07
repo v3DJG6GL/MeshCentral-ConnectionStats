@@ -522,6 +522,9 @@ test('device state identifies mapped pending sessions without enabling live auto
     let v = await f.view();
     assert.equal(v.sessions[0].mapped, true);
     assert.equal(v.sessions[0].basis, 'connected');
+    assert.equal(v.sessions[0].active, d.active ?? null);
+    d.active = 42;
+    assert.equal((await f.view()).sessions[0].active, 42);
     assert.equal(v.allocations.length, 0);
     const a = await f.action('start', { sessions: [d._id], destination: f.dest, from: 'now' });
     f.step(10000);

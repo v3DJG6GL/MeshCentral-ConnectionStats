@@ -185,3 +185,37 @@ a.cs-btn { text-decoration: none; display: inline-block; }
 .km-panel button:active:not(:disabled) { transform:translateY(1px); }
 .km-panel button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
 .km-panel button:disabled { opacity:.55; cursor:wait; }
+
+/* History keeps the accounting comparison visible; diagnostics expand in place. */
+.km-history-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.km-history-heading h2 { margin:0 0 4px; }
+.km-history-heading p { margin:0; color:var(--m); }
+.km-history-heading label { display:flex; align-items:center; gap:8px; }
+.km-history-table { table-layout:fixed; }
+.km-history-table th:nth-child(1) { width:22%; }
+.km-history-table th:nth-child(2) { width:32%; }
+.km-history-table th:nth-child(3) { width:16%; }
+.km-history-table th:nth-child(4) { width:30%; }
+.km-history-table td { padding:14px 10px; overflow-wrap:anywhere; }
+.km-history-table th { color:var(--m); font-weight:normal; }
+.km-history-table td > strong, .km-history-when > span, .km-history-recording > span, .km-history-duration > span { display:block; }
+.km-history-when > span { margin-top:4px; }
+.km-history-duration { font-variant-numeric:tabular-nums; }
+.km-history-duration > span, .km-history-recording > span { color:var(--m); margin-bottom:5px; }
+.km-history-recording p { margin:6px 0 0; }
+.km-history-status { display:inline-block; padding:2px 7px; border:1px solid currentColor; border-radius:3px; }
+.km-history-synced { color:var(--good); }
+.km-history-attention { color:var(--bad); }
+.km-history-excluded, .km-history-id { color:var(--m); }
+.km-history-id { display:inline-block; margin-left:8px; }
+.km-history-note { margin:8px 0; color:var(--m); }
+.km-history-details { margin-top:8px; }
+.km-history-details summary { cursor:pointer; color:var(--t); }
+.km-history-details summary:focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
+.km-history-details p { max-width:65ch; }
+.km-history-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.km-history-table tbody tr:hover { background:var(--r2); }
+@media(max-width:760px) { .km-history-table { min-width:700px; } }
+.km-history-pending { color:var(--m); }
+.km-history-table td.km-history-when { overflow-wrap:normal; }
+.km-history-when strong { white-space:nowrap; }

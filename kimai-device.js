@@ -274,6 +274,7 @@ class Device {
                     nodeid: x.nodeid,
                     name: x.nodename || x.nodeid,
                     type: x.type,
+                    active: x.active ?? null,
                     mapped:
                         x.source === 'live' &&
                         !x.guest &&

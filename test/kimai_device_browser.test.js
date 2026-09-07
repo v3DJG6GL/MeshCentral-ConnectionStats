@@ -82,7 +82,7 @@ async function harness(overrides = {}, environment = {}) {
     vm.runInContext(
         source.replace(
             /window\.CSDevice\s*=\s*\{/,
-            'window.__test={openDevice,dismissPanel,shell,placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
+            'window.__test={connectionClock,openDevice,dismissPanel,shell,placeConfirmation,setPanel:function(p){panel=p;},duration,title,post,refresh,deviceSpans,deviceAllocations,canApprove,approvalValues,approvalTiming,setActive:function(a){active=a;}};window.CSDevice={',
         ),
         context,
     );
@@ -346,4 +346,54 @@ test('Escape and outside pointer dismiss panels while inside interactions do not
     assert.equal(p.hidden, false);
     h.api.dismissPanel({ type: 'keydown', key: 'Escape', preventDefault() {}, stopPropagation() {} });
     assert.equal(p.hidden, true);
+});
+
+test('connection clocks keep measured activity separate from elapsed and preserve missing data', async () => {
+    const h = await harness();
+    assert.equal(
+        h.api.connectionClock([{ start: 1000, active: 63 }], 125000),
+        ' · Elapsed 0:02:04 · Active 0:01:03',
+    );
+    assert.match(h.api.connectionClock([{ start: 1000, active: null }], 125000), /Active unavailable/);
+    assert.match(h.api.connectionClock([{ start: 1000, active: 0 }], 125000), /Active 0:00:00/);
+    assert.match(
+        h.api.connectionClock(
+            [
+                { start: 1000, active: 63 },
+                { start: 2000, active: 12 },
+            ],
+            125000,
+        ),
+        /Active 0:01:03 \/ 0:00:12 \(per connection\)/,
+    );
+});
+
+test('each toolbar clock uses its own connection type', async () => {
+    const now = Date.now();
+    const h = await harness({
+        serverNow: now,
+        sessions: [
+            {
+                nodeid: 'node/test',
+                type: 'desktop',
+                start: now - 65000,
+                end: null,
+                active: 32,
+                mapped: true,
+                basis: 'active',
+            },
+            {
+                nodeid: 'node/test',
+                type: 'terminal',
+                start: now - 90000,
+                end: null,
+                active: 14,
+                mapped: true,
+                basis: 'active',
+            },
+        ],
+    });
+    assert.match(h.hosts.deskstatus.children[0].children[0].textContent, /Elapsed 0:01:05 · Active 0:00:32/);
+    assert.match(h.hosts.termstatus.children[0].children[0].textContent, /Elapsed 0:01:30 · Active 0:00:14/);
+    assert.doesNotMatch(h.hosts.p13Status.children[0].children[0].textContent, /Elapsed/);
 });

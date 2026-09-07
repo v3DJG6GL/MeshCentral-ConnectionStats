@@ -10,6 +10,7 @@
     var state,
         node = '',
         refreshing = false,
+        receivedAt = 0,
         active,
         panel,
         dialog,
@@ -1070,6 +1071,7 @@
             var button = document.createElement('button');
             button.type = 'button';
             button.className = 'cs-kd-chip';
+            button.connectionType = { deskstatus: 'desktop', termstatus: 'terminal', p13Status: 'files' }[id];
             button.textContent = 'Kimai';
             button.onclick = function () {
                 if (state) openDevice();
@@ -1083,6 +1085,26 @@
             wrap.append(stopButton);
             host.insertAdjacentElement('afterend', wrap);
         });
+    }
+    function connectionClock(sessions, now) {
+        if (!sessions.length) return '';
+        var start = Math.min.apply(
+            null,
+            sessions.map(function (s) {
+                return s.start;
+            }),
+        );
+        return (
+            ' · Elapsed ' +
+            duration(Math.max(0, (now - start) / 1000)) +
+            ' · Active ' +
+            sessions
+                .map(function (s) {
+                    return s.active == null ? 'unavailable' : duration(s.active);
+                })
+                .join(' / ') +
+            (sessions.length > 1 ? ' (per connection)' : '')
+        );
     }
     function updateChips() {
         var a = deviceAllocations().find(ongoing),
@@ -1107,7 +1129,16 @@
                             : 'Mapped · review after disconnect'
                         : 'Start timer') +
                 (count ? ' · ' + count + ' to review' : '');
-            b.title = 'Open personal Kimai controls';
+            var connections = (state.sessions || []).filter(function (s) {
+                return s.nodeid === currentNodeId() && s.end == null && s.type === b.connectionType;
+            });
+            if (state.connected)
+                b.textContent += connectionClock(
+                    connections,
+                    state.serverNow ? state.serverNow + Math.max(0, Date.now() - receivedAt) : Date.now(),
+                );
+            b.title =
+                'Open personal Kimai controls. Active time is the latest server measurement; multiple values are per connection, not added together.';
         });
         document.querySelectorAll('.cs-kd-quick-stop').forEach(function (b) {
             var ids = a ? deviceSpans(a, currentNodeId()) : [];
@@ -1159,7 +1190,7 @@
             (panel && !panel.hidden) ||
             state.activeConnections > 0 ||
             (state.sessions || []).some(function (s) {
-                return !s.end && (a || !s.mapped || s.basis !== 'active');
+                return !s.end;
             })
         )
             return;
@@ -1200,6 +1231,7 @@
                 );
                 if (currentNodeId() !== next) return;
                 state = j;
+                receivedAt = Date.now();
                 node = next;
                 updateChips();
                 updateEditorStatus();
@@ -1231,6 +1263,9 @@
         },
     };
     refresh(false);
+    setInterval(function () {
+        if (state && !document.hidden) updateChips();
+    }, 1000);
     setInterval(function () {
         refresh(false);
     }, 5000);

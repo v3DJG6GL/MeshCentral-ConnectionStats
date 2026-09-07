@@ -26,7 +26,7 @@ function harness() {
     let code = fs.readFileSync(path.join(__dirname, '../public/kimai.js'), 'utf8');
     code =
         code.slice(0, code.lastIndexOf('    reload().catch')) +
-        '    window.testApi={run,setReload:function(fn){reload=fn;}};})();';
+        '    window.testApi={historyRows,historyCategory,clockDuration,setHistory:function(s, data, filter){state=s;lists=data;historyFilter=filter;},run,setReload:function(fn){reload=fn;}};})();';
     vm.runInNewContext(code, context);
     context.window.testApi.setReload(async () => {});
     return { api: context.window.testApi, button, statuses, root };
@@ -65,4 +65,43 @@ test('failed save retains form contents and displays actionable error', async ()
     assert.equal(h.statuses[0].textContent, 'Connection timed out');
     assert.match(h.statuses[0].className, /error/);
     assert.equal(h.button.disabled, false);
+});
+
+test('history keeps durations comparable, escapes content and distinguishes discarded errors', () => {
+    const h = harness();
+    const entry = {
+        id: 'x',
+        status: 'synced',
+        begin: Date.UTC(2026, 8, 8, 8, 0, 0),
+        end: Date.UTC(2026, 8, 8, 8, 0, 17),
+        remoteSeconds: 60,
+        remoteId: 11,
+        project: 1,
+        activity: 2,
+        description: '<script>bad</script>',
+        warning: 'Kimai changed the duration (rounding)',
+    };
+    const lists = { projects: [{ id: 1, name: 'Support' }], activities: [{ id: 2, name: 'Remote work' }] };
+    h.api.setHistory({ timezone: 'UTC', history: [entry] }, lists, 'all');
+    const html = h.api.historyRows();
+    assert.match(html, /08:00:00 → 08:00:17/);
+    assert.match(html, /0:00:17/);
+    assert.match(html, /0:01:00/);
+    assert.match(html, /\+0:00:43/);
+    assert.match(html, /Support/);
+    assert.doesNotMatch(html, /<script>/);
+    h.api.setHistory(
+        { timezone: 'UTC', history: [{ ...entry, status: 'excluded', error: 'Old overlap' }] },
+        lists,
+        'attention',
+    );
+    assert.match(h.api.historyRows(), /No recordings/);
+    h.api.setHistory(
+        { timezone: 'UTC', history: [{ ...entry, status: 'conflict', error: 'Overlap' }] },
+        lists,
+        'attention',
+    );
+    assert.match(h.api.historyRows(), /Review issue & actions/);
+    assert.match(h.api.historyRows(), /data-review="x"/);
+    assert.equal(h.api.historyCategory({ status: 'kept' }), 'synced');
 });

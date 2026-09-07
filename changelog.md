@@ -1,3 +1,9 @@
+## 0.4.8 — 2026-09-08
+
+- Show elapsed connection time and measured active time, including seconds, on each device toolbar. Missing activity is explicitly unavailable; concurrent activity values remain separate.
+- Redesign sync history with readable timestamps, destination names, comparable recorded/Kimai durations and rounding differences, status filters, and expandable diagnostics and resolution actions.
+- Preserve dark/light theme, keyboard access, and independent settings form drafts while filtering history.
+
 ## 0.4.7 — 2026-09-08
 
 - Open mapped recording status instead of an unrelated Start timer form while a mapped connection is active. Active-time sessions explain that their recording is prepared after disconnect.

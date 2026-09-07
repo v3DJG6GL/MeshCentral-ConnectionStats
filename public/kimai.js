@@ -184,6 +184,161 @@
             '">Remove</button></fieldset>'
         );
     }
+    var historyFilter = 'all';
+    function clockDuration(seconds) {
+        if (seconds == null || !Number.isFinite(Number(seconds))) return 'Unavailable';
+        var n = Math.max(0, Math.floor(Number(seconds)));
+        return (
+            Math.floor(n / 3600) +
+            ':' +
+            String(Math.floor(n / 60) % 60).padStart(2, '0') +
+            ':' +
+            String(n % 60).padStart(2, '0')
+        );
+    }
+    function historyCategory(l) {
+        if (l.status === 'excluded') return 'excluded';
+        if (['synced', 'kept'].includes(l.status)) return 'synced';
+        if (['pending', 'running'].includes(l.status)) return 'pending';
+        return 'attention';
+    }
+    function historyRows() {
+        var rows = (state.history || []).filter(function (l) {
+            return historyFilter === 'all' || historyCategory(l) === historyFilter;
+        });
+        if (!rows.length) return '<p class="km-history-empty">No recordings in this view.</p>';
+        return (
+            '<div class="km-table"><table class="km-history-table"><thead><tr><th scope="col">Recording time</th><th scope="col">Recording / destination</th><th scope="col">Duration</th><th scope="col">Sync result</th></tr></thead><tbody>' +
+            rows
+                .map(function (l) {
+                    var category = historyCategory(l),
+                        date = local(l.begin),
+                        end = l.end ? local(l.end) : null,
+                        recorded = l.end == null ? null : (l.end - l.begin) / 1000,
+                        project = lists.projects.find(function (p) {
+                            return Number(p.id) === Number(l.project);
+                        }),
+                        activity = lists.activities.find(function (p) {
+                            return Number(p.id) === Number(l.activity);
+                        }),
+                        label =
+                            {
+                                synced: 'Synced',
+                                kept: 'Kept in Kimai',
+                                pending: 'Pending',
+                                excluded: 'Discarded',
+                                conflict: 'Needs review',
+                                error: 'Failed',
+                                creating: 'Verifying sync',
+                                locked: 'Locked',
+                                running: 'Running',
+                            }[l.status] || l.status,
+                        resolve = ['conflict', 'error', 'creating'].includes(l.status),
+                        delta = recorded != null && l.remoteSeconds != null ? l.remoteSeconds - recorded : 0;
+                    return (
+                        '<tr><td class="km-history-when"><strong>' +
+                        esc(date.slice(0, 10)) +
+                        '</strong><span>' +
+                        esc(date.slice(11)) +
+                        ' → ' +
+                        esc(
+                            end
+                                ? end.slice(0, 10) === date.slice(0, 10)
+                                    ? end.slice(11)
+                                    : end.replace('T', ' ')
+                                : 'End unknown',
+                        ) +
+                        '</span></td>' +
+                        '<td class="km-history-recording"><strong>' +
+                        esc(project ? project.name : l.project ? 'Project #' + l.project : 'No destination') +
+                        '</strong>' +
+                        '<span>' +
+                        esc(activity ? activity.name : l.activity ? 'Activity #' + l.activity : '') +
+                        '</span>' +
+                        (l.description ? '<p>' + esc(l.description) + '</p>' : '') +
+                        '</td>' +
+                        '<td class="km-history-duration"><strong>' +
+                        esc(clockDuration(recorded)) +
+                        '</strong><span>Recorded</span>' +
+                        (l.remoteSeconds != null
+                            ? '<strong>' +
+                              esc(clockDuration(l.remoteSeconds)) +
+                              '</strong><span>In Kimai' +
+                              (delta
+                                  ? ' · ' + (delta > 0 ? '+' : '−') + esc(clockDuration(Math.abs(delta)))
+                                  : '') +
+                              '</span>'
+                            : '') +
+                        '</td>' +
+                        '<td><span class="km-history-status km-history-' +
+                        category +
+                        '">' +
+                        esc(label) +
+                        '</span>' +
+                        (l.remoteId
+                            ? '<span class="km-history-id">Kimai #' + esc(l.remoteId) + '</span>'
+                            : '') +
+                        (l.warning ? '<p class="km-history-note">' + esc(l.warning) + '</p>' : '') +
+                        (l.error || resolve
+                            ? '<details class="km-history-details"><summary>' +
+                              (category === 'excluded'
+                                  ? 'Previous sync issue'
+                                  : resolve
+                                    ? 'Review issue & actions'
+                                    : 'Sync details') +
+                              '</summary>' +
+                              (l.error ? '<p>' + esc(l.error) + '</p>' : '') +
+                              (resolve
+                                  ? '<div class="km-history-actions">' +
+                                    (l.remoteId
+                                        ? '<button data-resolve="' +
+                                          esc(l.id) +
+                                          '" data-choice="keep">Keep Kimai version</button>'
+                                        : '') +
+                                    '<button data-review="' +
+                                    esc(l.id) +
+                                    '">Review replacement</button></div>'
+                                  : '') +
+                              '</details>'
+                            : '') +
+                        '</td></tr>'
+                    );
+                })
+                .join('') +
+            '</tbody></table></div>'
+        );
+    }
+    function historySection() {
+        return (
+            '<section class="km-panel km-history"><div class="km-history-heading"><div><h2>Sync history</h2><p>Latest ' +
+            (state.history || []).length +
+            ' entries · Recording times in ' +
+            esc(state.timezone || 'UTC') +
+            ' · Latest update first</p></div><label>Show <select data-history-filter>' +
+            [
+                ['all', 'All results'],
+                ['attention', 'Needs attention'],
+                ['synced', 'Synced'],
+                ['pending', 'Pending / running'],
+                ['excluded', 'Discarded'],
+            ]
+                .map(function (item) {
+                    return (
+                        '<option value="' +
+                        item[0] +
+                        '"' +
+                        (historyFilter === item[0] ? ' selected' : '') +
+                        '>' +
+                        item[1] +
+                        '</option>'
+                    );
+                })
+                .join('') +
+            '</select></label></div><div data-history-rows>' +
+            historyRows() +
+            '</div></section>'
+        );
+    }
     function render() {
         var h =
             '<div class="cs-bar"><b>Kimai</b><a class="cs-btn" href="' +
@@ -302,49 +457,18 @@
                         .join('') +
                     '</tbody></table></div><button>Send selected entries</button></form>';
         }
-        h +=
-            '<section class="km-panel"><h2>Sync history</h2>' +
-            (state.history.length
-                ? '<div class="km-table"><table><thead><tr><th>Time</th><th>Status</th><th>Details</th><th>Resolution</th></tr></thead><tbody>' +
-                  state.history
-                      .map(function (l) {
-                          return (
-                              '<tr><td>' +
-                              esc(local(l.begin)) +
-                              '<br>' +
-                              esc(l.end ? local(l.end) : 'Running / end unknown') +
-                              '</td><td>' +
-                              esc(l.status) +
-                              (l.remoteId ? ' · #' + esc(l.remoteId) : '') +
-                              '</td><td>' +
-                              esc(l.error || l.warning || l.description) +
-                              (l.remoteSeconds != null
-                                  ? '<br>Kimai: ' + esc(l.remoteSeconds) + ' seconds'
-                                  : '') +
-                              '</td><td>' +
-                              (['conflict', 'error', 'creating'].includes(l.status)
-                                  ? (l.remoteId
-                                        ? '<button data-resolve="' +
-                                          esc(l.id) +
-                                          '" data-choice="keep">Keep Kimai version</button> '
-                                        : '') +
-                                    '<button data-review="' +
-                                    esc(l.id) +
-                                    '">Review replacement</button>'
-                                  : '') +
-                              '</td></tr>'
-                          );
-                      })
-                      .join('') +
-                  '</tbody></table></div>'
-                : '<p>No entries synchronized yet.</p>') +
-            '</section>';
+        h += historySection();
         root.innerHTML = h;
         showFeedback();
         root.querySelectorAll('button').forEach(function (b) {
             b.disabled = busy;
         });
     }
+    root.addEventListener('change', function (e) {
+        if (!e.target.matches('[data-history-filter]')) return;
+        historyFilter = e.target.value;
+        root.querySelector('[data-history-rows]').innerHTML = historyRows();
+    });
     async function reload() {
         state = await request(api + '&api=kimai');
         meta = await request(api + '&api=meta');
