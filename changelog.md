@@ -1,3 +1,10 @@
+## 0.4.3 — 2026-09-08
+
+- Do not create Kimai recording reviews for unmatched sessions after disconnect.
+  Manual timers still work without rules; mapped active-time sessions still use
+  their after-disconnect review policy independently of connected-time live timers.
+- Preserve existing reviews and raw ConnectionStats sessions.
+
 ## 0.4.2 — 2026-09-08
 
 - Move personal recording preferences into Kimai settings. Add per-rule review

@@ -396,26 +396,10 @@ class Device {
                 }
             } else {
                 // No historical-import popup. Open sessions spanning adoption remain eligible.
-                if (doc.end < cfg.since) continue;
+                if (doc.end < cfg.since || !r) continue;
                 for (const piece of rest) {
                     if (piece.end <= piece.begin) continue;
-                    const a = make(
-                        [doc],
-                        r
-                            ? mapped(doc, r)
-                            : {
-                                  customer: 0,
-                                  project: 0,
-                                  activity: 0,
-                                  description: '',
-                                  tags: 'meshcentral',
-                                  billable: true,
-                                  basis: 'connected',
-                              },
-                        piece.begin,
-                        piece.end,
-                        r ? 'rule' : 'unmatched',
-                    );
+                    const a = make([doc], mapped(doc, r), piece.begin, piece.end, 'rule');
                     a.prompt = effectivePrompt(r, cfg);
                     a.spans = [ruleSpan(doc, piece.begin, piece.end, r, cfg)];
                     if (!doc.truncated && doc.end - doc.start < minimum(r, cfg) * 1000) {
@@ -450,7 +434,6 @@ class Device {
                         )
                             a.error = 'Overlapping activity requires a reviewed duration';
                     }
-                    if (!r) a.error = 'Choose a destination';
                     if (doc.truncated) a.error = 'Connection end is uncertain; review the end time';
                     const merged =
                         !a.error &&

@@ -178,13 +178,14 @@ test('manual start works with live automation off, stop/resume keeps every gap e
         [10, 10, 10],
     );
     assert.equal(
-        v.reviews.find((x) => x.origin === 'unmatched').seconds,
-        600,
-        'earlier time is available only as an explicit review',
+        v.reviews.some((x) => x.origin === 'unmatched'),
+        false,
+        'untracked earlier time must not create a Kimai review',
     );
     const state = await f.service.state(f.user);
     const remaining = available(state, [d]);
-    assert.equal(remaining.length, 0, 'reviewed, tracked and suppressed spans reserve the entire source');
+    assert.equal(remaining.length, 1, 'only time before the explicit manual start remains available');
+    assert.equal(remaining[0].end - remaining[0].start, 600000);
     assert.equal(
         f.calls.filter((x) => x.method === 'POST').length,
         0,
@@ -225,16 +226,17 @@ test('external Kimai timer blocks manual start without modifying it', async (t) 
         false,
     );
 });
-test('closed unmatched sessions enter durable inbox even with popups disabled; claims deduplicate', async (t) => {
+test('manual recordings enter durable inbox with popups disabled; claims deduplicate', async (t) => {
     const f = setup(t);
     await f.ready();
     const d = f.doc();
     await f.view();
     await f.action('preferences', { prompt: 'never', presentation: 'drawer' });
+    await f.action('start', { sessions: [d._id], destination: f.dest, from: 'now' });
     f.step(1000);
     d.end = f.now;
     let a = (await f.view()).reviews[0];
-    assert.match(a.error, /destination/);
+    assert.equal(a.origin, 'manual');
     assert.equal((await f.action('claim', { id: a.id })).show, true);
     assert.equal((await f.action('claim', { id: a.id })).show, false);
     const restarted = new Service(f.service.p, { vault: { open: (x) => x }, clientFactory: () => f.c });
@@ -644,4 +646,46 @@ test('shared recording removes a short contributor without discarding eligible t
     assert.equal(eligible.begin, long.start);
     assert.equal(eligible.prompt, 'never');
     assert.equal(v.allocations.find((a) => a.status === 'excluded').source[0], 'short');
+});
+
+test('unmatched sessions never create Kimai allocations, with live automation on or off', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    for (const live of [false, true]) {
+        const s = await f.service.state(f.user);
+        s.live = live;
+        s.rules = [{ ...f.dest, basis: 'connected', device: 'node//different' }];
+        await f.service.save(f.user, s);
+        const d = f.doc('unmatched-' + live, 0);
+        assert.equal((await f.view()).allocations.length, 0);
+        f.step(67000);
+        d.end = f.now;
+        const v = await f.view();
+        assert.equal(v.allocations.length, 0);
+        assert.equal(v.reviews.length, 0);
+    }
+    assert.equal(f.calls.filter((c) => ['POST', 'PATCH'].includes(c.method)).length, 0);
+    assert.equal(f.docs.length, 2, 'raw ConnectionStats sessions remain');
+});
+
+test('active-time group rule applies after disconnect with live timers disabled, only to its group', async (t) => {
+    const f = setup(t);
+    await f.ready();
+    await f.view();
+    const s = await f.service.state(f.user);
+    s.rules = [{...f.dest, group:'mesh//practice',type:'desktop',basis:'active',prompt:'issues'}];
+    await f.service.save(f.user, s);
+    const matching = f.doc('matching',0), other = f.doc('other',0);
+    matching.meshid = 'mesh//practice';
+    other.meshid = 'mesh//elsewhere';
+    assert.equal((await f.view()).allocations.length,0);
+    f.step(67000);
+    matching.end = other.end = f.now;
+    const v = await f.view();
+    assert.equal(v.reviews.length,1);
+    assert.deepEqual(v.reviews[0].source,['matching']);
+    assert.equal(v.reviews[0].project,f.dest.project);
+    assert.equal(v.reviews[0].prompt,'issues');
+    assert.match(v.reviews[0].error,/Active-time|Overlapping activity/);
 });

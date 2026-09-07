@@ -108,6 +108,9 @@ required; permission and lockdown failures appear in the sync history.
 Configure ordered rules matching group, device and connection type. Select a
 customer, project, activity, connected/active time, billable status, description,
 and tags. The first matching rule wins; unmatched and guest sessions are excluded.
+Unmatched sessions do not create automatic Kimai reviews; explicitly started manual
+timers remain reviewable without a rule. Disabling connected-time live timers does
+not disable after-disconnect processing for matching active-time rules.
 Description placeholders: `{device}`, `{group}`, `{types}`, `{admin}`, `{date}`,
 `{sessions}`. The `meshcentral` tag and a stable description marker identify entries.
 Do not remove markers while an entry is managed by the integration. Missing tags
