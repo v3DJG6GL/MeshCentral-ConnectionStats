@@ -233,7 +233,7 @@
                                 '</td><td>' +
                                 input('description', b.description) +
                                 '</td><td>' +
-                                esc(b.seconds + ' seconds · ' + b.basis + ' · ' + (b.status || 'new')) +
+                                esc(window.CS_FORMAT_DURATION(b.seconds) + ' · ' + b.basis + ' · ' + (b.status || 'new')) +
                                 (b.issue
                                     ? '<p>' +
                                       esc(b.issue) +

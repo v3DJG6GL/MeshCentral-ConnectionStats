@@ -1,3 +1,14 @@
+## 0.3.3 — 2026-09-07
+
+- Correct Terminal/Files activity attribution for SSH/SFTP and the connection’s own
+  device, capture legacy terminal keyboard and paste/drop input, and reset activity
+  throttling when a connection is recreated. Keep open-session active totals growing
+  through the idle window even without a new heartbeat.
+
+- Show durations as h:mm:ss, preserving seconds in session Duration/Active columns,
+  summaries, chart tooltips, and Kimai previews; hours do not wrap after 24.
+  Numeric CSV/JSON exports and chart scales remain unchanged.
+
 ## 0.3.2 — 2026-09-07
 
 - Version all dashboard JavaScript/CSS URLs and prevent page caching so upgrades

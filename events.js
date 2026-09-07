@@ -157,11 +157,11 @@ function Pairer() {
         return doc;
     };
 
-    self.findOpen = function (userid, nodeid, type) {
+    self.findOpen = function (userid, nodeid, type, protocol) {
         var best = null;
         for (var k in self.open) {
             var d = self.open[k];
-            if (d.userid == userid && d.nodeid == nodeid && (type == null || d.type == type)) {
+            if (d.userid == userid && d.nodeid == nodeid && (type == null || d.type == type) && (protocol == null || d.protocol == protocol)) {
                 if (best == null || d.start > best.start) best = d;
             }
         }

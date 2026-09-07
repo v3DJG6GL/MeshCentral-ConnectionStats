@@ -42,6 +42,7 @@ module.exports.connectionstats = function (parent) {
         'csOnMessage',
         'csActivityInit',
         'csKindOf',
+        'csActivitySession',
         'csBeat',
         'csObserve'
     ];
@@ -68,41 +69,58 @@ module.exports.connectionstats = function (parent) {
             while (el != null && el.nodeType == 1) {
                 var id = el.id || '';
                 if (id == 'Desk' || id == 'DeskParent' || id == 'deskarea3x') return 'desktop';
-                if (id == 'termTable' || id == 'termarea3xdiv' || id == 'termarea3x' || (el.classList && el.classList.contains('xterm'))) return 'terminal';
-                if (id == 'p13filetable' || id == 'p13' || id == 'p5filetable') return 'files';
+                if (id == 'p12' || id == 'Term' || id == 'termTable' || id == 'termarea3xdiv' || id == 'termarea3x' || (el.classList && el.classList.contains('xterm'))) return 'terminal';
+                if (id == 'p13filetable' || id == 'p13') return 'files';
                 el = el.parentNode;
             }
         } catch (e) { }
         return null;
     };
 
-    // Only "still active" leaves the browser: the node and the kind of view, never the input.
+    // Resolve the connection's own node, not the device currently selected elsewhere in the UI.
+    // SSH/SFTP use the same Terminal/Files surfaces but different server relay protocols.
+    obj.csActivitySession = function (kind) {
+        var transport = kind == 'desktop' ? (typeof desktop == 'undefined' ? null : desktop) :
+            kind == 'terminal' ? (typeof terminal == 'undefined' ? null : terminal) :
+            kind == 'files' ? (typeof files == 'undefined' ? null : files) : null;
+        if (!transport || transport.State != 3) return null;
+        var node = kind == 'desktop' ? (typeof desktopNode == 'undefined' ? null : desktopNode) :
+            kind == 'terminal' ? (typeof terminalNode == 'undefined' ? null : terminalNode) :
+            (typeof filesNode == 'undefined' ? null : filesNode);
+        var nodeid = transport.nodeid || (node && node._id);
+        if (!nodeid) return null;
+        var protocol = transport.urlname == 'sshterminalrelay.ashx' ? 202 : transport.urlname == 'sshfilesrelay.ashx' ? 203 : null;
+        var st = window.__csAct || (window.__csAct = { last: {}, seen: {}, transports: {} });
+        if (!st.transports) st.transports = {};
+        var key = nodeid + '|' + kind;
+        if (st.transports[key] !== transport) {
+            st.transports[key] = transport; delete st.last[key]; delete st.seen[key];
+        }
+        return { nodeid: nodeid, kind: kind, protocol: protocol, key: key };
+    };
+
+    // Only a heartbeat leaves the browser, never keys, pasted text, filenames or file contents.
     obj.csBeat = function (kind) {
         try {
-            if (typeof currentNode == 'undefined' || currentNode == null || typeof meshserver == 'undefined') return;
-            var st = window.__csAct; if (st == null) st = window.__csAct = { last: {}, seen: {} };
-            var now = Date.now(), key = currentNode._id + '|' + kind;
-            if (st.last[key] != null && now - st.last[key] < 30000) return;
-            st.last[key] = now; st.seen[key] = now;
-            meshserver.send({ action: 'plugin', plugin: 'connectionstats', pluginaction: 'beat', nodeid: currentNode._id, kind: kind });
+            if (typeof meshserver == 'undefined') return;
+            var c = pluginHandler.connectionstats.csActivitySession(kind); if (!c) return;
+            var st = window.__csAct, now = Date.now();
+            if (st.last[c.key] != null && now - st.last[c.key] < 30000) return;
+            st.last[c.key] = now; st.seen[c.key] = now;
+            meshserver.send({ action: 'plugin', plugin: 'connectionstats', pluginaction: 'beat', nodeid: c.nodeid, kind: c.kind, protocol: c.protocol });
         } catch (e) { }
     };
 
-    // A connected view with no input yet is "observed": its session gets 0 active seconds instead
-    // of "no data". Polled, because the UI has no hook for the terminal or files connecting.
+    // A connected view with no input is observed as zero, independently of input heartbeats.
     obj.csObserve = function () {
         try {
-            if (typeof currentNode == 'undefined' || currentNode == null || typeof meshserver == 'undefined') return;
-            var st = window.__csAct; if (st == null) st = window.__csAct = { last: {}, seen: {} };
-            var kinds = [];
-            if (typeof desktop != 'undefined' && desktop != null && desktop.State == 3) kinds.push('desktop');
-            if (typeof terminal != 'undefined' && terminal != null && terminal.State == 3) kinds.push('terminal');
-            if (typeof files != 'undefined' && files != null && files.State == 3) kinds.push('files');
-            kinds.forEach(function (kind) {
-                var key = currentNode._id + '|' + kind;
-                if (st.seen[key] != null && Date.now() - st.seen[key] < 120000) return;
-                st.seen[key] = Date.now();
-                meshserver.send({ action: 'plugin', plugin: 'connectionstats', pluginaction: 'observe', nodeid: currentNode._id, kind: kind });
+            if (typeof meshserver == 'undefined') return;
+            ['desktop', 'terminal', 'files'].forEach(function (kind) {
+                var c = pluginHandler.connectionstats.csActivitySession(kind); if (!c) return;
+                var st = window.__csAct;
+                if (st.seen[c.key] != null && Date.now() - st.seen[c.key] < 120000) return;
+                st.seen[c.key] = Date.now();
+                meshserver.send({ action: 'plugin', plugin: 'connectionstats', pluginaction: 'observe', nodeid: c.nodeid, kind: c.kind, protocol: c.protocol });
             });
         } catch (e) { }
     };
@@ -110,8 +128,15 @@ module.exports.connectionstats = function (parent) {
     obj.csActivityInit = function () {
         try {
             if (window.__csActInit) return; window.__csActInit = true;
-            var handler = function (ev) { var k = pluginHandler.connectionstats.csKindOf(ev.target); if (k != null) pluginHandler.connectionstats.csBeat(k); };
-            ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'].forEach(function (n) { document.addEventListener(n, handler, { capture: true, passive: true }); });
+            var handler = function (ev) {
+                var k = pluginHandler.connectionstats.csKindOf(ev.target);
+                // MeshCentral's legacy terminal handles keyboard events at document level.
+                if (k == null && ev.type == 'keydown' && (typeof xxdialogMode == 'undefined' || !xxdialogMode) &&
+                    typeof xxcurrentView != 'undefined' && xxcurrentView == 12 && (typeof xterm == 'undefined' || xterm == null) &&
+                    (ev.target === document.body || ev.target === document.documentElement)) k = 'terminal';
+                if (k != null) pluginHandler.connectionstats.csBeat(k);
+            };
+            ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart', 'paste', 'input', 'drop'].forEach(function (n) { document.addEventListener(n, handler, { capture: true, passive: true }); });
             setInterval(function () { pluginHandler.connectionstats.csObserve(); }, 5000);
         } catch (e) { }
     };
@@ -441,10 +466,14 @@ module.exports.connectionstats = function (parent) {
 
     obj.flushActivity = function () {
         try {
-            obj.tracker.takeDirty().forEach(function (sid) {
+            // A heartbeat's idle window keeps accruing without another input event.
+            // Recalculate observed open sessions even when no new beat made them dirty.
+            obj.tracker.takeDirty();
+            Object.keys(obj.tracker.beats).forEach(function (sid) {
                 var open = obj.pairer.open[sid.substring(2)];
                 if (open == null) { obj.tracker.forget(sid); return; }
                 var patch = { active: obj.tracker.activeFor(sid, open.start, null), lastbeat: obj.tracker.lastBeat(sid) };
+                if (open.active === patch.active && open.lastbeat === patch.lastbeat) return;
                 open.active = patch.active; open.lastbeat = patch.lastbeat;
                 wrote(obj.db.updateSession(sid, patch)).catch(function () { });
             });
@@ -488,7 +517,8 @@ module.exports.connectionstats = function (parent) {
                 var kind = (['desktop', 'terminal', 'files'].indexOf(command.kind) >= 0) ? command.kind : null;
                 if (kind == null) break;
                 // the session belongs to this user on this node: no rights check needed beyond that
-                var open = obj.pairer.findOpen(user._id, command.nodeid, kind);
+                var protocol = (kind == 'terminal' && command.protocol === 202) ? 202 : (kind == 'files' && command.protocol === 203) ? 203 : null;
+                var open = obj.pairer.findOpen(user._id, command.nodeid, protocol ? 'webapp' : kind, protocol);
                 if (open == null) break;
                 if (command.pluginaction == 'beat') obj.tracker.beat(open._id, Date.now());
                 else if (!obj.tracker.has(open._id)) { obj.tracker.beats[open._id] = []; obj.tracker.dirty[open._id] = true; }

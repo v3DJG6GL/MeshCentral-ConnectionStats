@@ -23,6 +23,8 @@
     }
     window.addEventListener('message', function (ev) { var d = ev.data; if (d && d.cs == 'night') setNight(d.night); });
 
+    // Shared with the personal Kimai preview, which does not initialize the dashboard.
+    window.CS_FORMAT_DURATION = fmtDur;
     if (BOOT.view === 'kimai') return;
     var API = 'pluginadmin.ashx?pin=connectionstats';
     var COMPACT = (BOOT.view == 'device');
@@ -73,11 +75,9 @@
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
     function p2(n) { return (n < 10 ? '0' : '') + n; }
     function fmtDur(sec) {
-        sec = Math.round(sec || 0);
-        if (sec < 60) return sec + 's';
-        var m = Math.round(sec / 60); if (m < 60) return m + 'm';
-        var h = Math.floor(m / 60); m = m % 60; if (h < 24) return h + 'h ' + p2(m) + 'm';
-        var d = Math.floor(h / 24); return d + 'd ' + (h % 24) + 'h';
+        sec = Number(sec);
+        sec = isFinite(sec) ? Math.max(0, Math.round(sec)) : 0;
+        return Math.floor(sec / 3600) + ':' + p2(Math.floor(sec / 60) % 60) + ':' + p2(sec % 60);
     }
     function fmtBytes(b) { b = b || 0; if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(0) + ' KB'; if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB'; return (b / 1073741824).toFixed(2) + ' GB'; }
     function fmtDate(t) { return F_DATE.format(new Date(t)); }

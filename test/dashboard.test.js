@@ -15,7 +15,7 @@ function dashboard({ storage = new Map(), hash = '', boot = {}, width = 1000, re
     vm.runInNewContext(source, { window, document, location, history: { replaceState: (_, __, h) => { location.hash = h; } },
         localStorage: { getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v) },
         fetch: response ? url => Promise.resolve({ ok: true, json: async () => response(url) }) : () => new Promise(() => {}), setInterval() {}, setTimeout: f => timers.push(f), Intl, Date });
-    return { cs: window.CS, handlers, root, document, inputs, location, storage };
+    return { cs: window.CS, formatDuration: window.CS_FORMAT_DURATION, handlers, root, document, inputs, location, storage };
 }
 
 test('year digit changes do not reload or replace the focused date field; Enter commits the completed date', () => {
@@ -152,9 +152,9 @@ test('bars and weekday bubbles share totals, colored type rows and hover/focus b
         // A pointer on a nested pie slice resolves to the parent bubble.
         d.handlers.pointerover({ target: { closest: () => el }, clientX: 2399, clientY: 799 });
         assert.equal(tip.hidden, false);
-        assert.match(tip.innerHTML, /Total<\/span><b>1h 30m/);
-        assert.match(tip.innerHTML, /background:#4477AA.*Desktop<\/span><b>1h 00m/);
-        assert.match(tip.innerHTML, /background:#CCBB44.*Files<\/span><b>30m/);
+        assert.match(tip.innerHTML, /Total<\/span><b>1:30:00/);
+        assert.match(tip.innerHTML, /background:#4477AA.*Desktop<\/span><b>1:00:00/);
+        assert.match(tip.innerHTML, /background:#CCBB44.*Files<\/span><b>0:30:00/);
         assert.doesNotMatch(tip.innerHTML, /Terminal/);
         const breakdown = tip.innerHTML.slice(tip.innerHTML.indexOf('<div class="cs-tip-total">'));
         if (el === bar) barBreakdown = breakdown; else assert.equal(breakdown, barBreakdown);
@@ -209,14 +209,14 @@ test('calendar days use shared totals and type breakdowns, including empty days'
     cell.closest = () => cell;
     d.handlers.pointerover({ target: cell, clientX: 30, clientY: 30 });
     assert.equal(tip.hidden, false);
-    assert.match(tip.innerHTML, /Total<\/span><b>1h 00m/);
+    assert.match(tip.innerHTML, /Total<\/span><b>1:00:00/);
     assert.match(tip.innerHTML, /background:#4477AA.*Desktop/);
     assert.doesNotMatch(tip.innerHTML, /Click to filter/);
     d.handlers.pointerout(); assert.equal(tip.hidden, true);
     cell.dataset.day = String(start + 86400000);
     d.handlers.focusin({ target: cell });
     assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /No sessions/);
-    assert.match(tip.innerHTML, /Total<\/span><b>0s/);
+    assert.match(tip.innerHTML, /Total<\/span><b>0:00:00/);
     assert.doesNotMatch(d.root.innerHTML, /class="cs-day"[^>]*><title>/);
 });
 
@@ -234,7 +234,7 @@ test('session timeline shows years and shared session tooltips on hover and focu
     for (const event of ['pointerover', 'focusin']) {
         d.handlers[event]({ target: session });
         assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /Demo:.*2025/);
-        assert.match(tip.innerHTML, /Total<\/span><b>1h 00m/);
+        assert.match(tip.innerHTML, /Total<\/span><b>1:00:00/);
         assert.match(tip.innerHTML, /background:#4477AA.*Desktop/);
         assert.doesNotMatch(tip.innerHTML, /Click to filter/);
         d.handlers.focusout(); assert.equal(tip.hidden, true);
@@ -254,7 +254,7 @@ test('empty bucket, weekday/hour and timeline fields show their context and zero
         field.closest = () => field;
         d.handlers.pointerover({ target: field, clientX: 50, clientY: 0 });
         assert.equal(tip.hidden, false);
-        assert.match(tip.innerHTML, /Total<\/span><b>0s/); assert.match(tip.innerHTML, /No sessions/);
+        assert.match(tip.innerHTML, /Total<\/span><b>0:00:00/); assert.match(tip.innerHTML, /No sessions/);
         assert.doesNotMatch(tip.innerHTML, /cs-tip-heading"><\/div>/);
         if (dataset.pc) assert.match(tip.innerHTML, /23:00 to 00:00/);
         if (dataset.i) assert.match(d.root.innerHTML, /class="cs-bucket" data-i="1"/);
@@ -275,7 +275,7 @@ test('share and where-time-went charts use custom breakdown tooltips without nat
         el.closest = () => el;
         for (const event of ['pointerover', 'focusin']) {
             d.handlers[event]({ target: el });
-            assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /Total<\/span><b>1h 00m/);
+            assert.equal(tip.hidden, false); assert.match(tip.innerHTML, /Total<\/span><b>1:00:00/);
             assert.match(tip.innerHTML, /background:#4477AA.*Desktop/);
             assert.doesNotMatch(tip.innerHTML, /Click to filter/);
             if (dataset.share) assert.match(tip.innerHTML, /100%/);
@@ -309,4 +309,16 @@ test('standalone Kimai uses the boot theme when no parent body is accessible', (
         vm.runInNewContext(source, { window, document: { documentElement: { classList: { toggle: (_, on) => { applied = on; } } } } });
         assert.equal(applied, night);
     }
+});
+
+
+test('duration rendering preserves seconds and never wraps hours at midnight', () => {
+    const format = dashboard().cs.fmtDur;
+    assert.equal(dashboard({ boot: { view: 'kimai' } }).formatDuration(7143), '1:59:03');
+    for (const [seconds, expected] of [
+        [0, '0:00:00'], [1, '0:00:01'], [59, '0:00:59'], [60, '0:01:00'],
+        [119, '0:01:59'], [7143, '1:59:03'], [86400, '24:00:00'],
+        [360001, '100:00:01'], [59.6, '0:01:00'], [-1, '0:00:00'],
+        [null, '0:00:00'], [NaN, '0:00:00'], [Infinity, '0:00:00']
+    ]) assert.equal(format(seconds), expected);
 });
