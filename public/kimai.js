@@ -405,7 +405,7 @@
             '"></label></div><p>Shorter sessions are excluded from Kimai review and automatic export; ConnectionStats keeps the original statistics. Zero disables the minimum. Manually started timers are kept for your decision.</p><button>Save recording preferences</button></form>';
         if (state.connected) {
             h +=
-                '<form data-form="settings" class="km-panel"><h2>Mapping rules</h2><p>First matching rule wins. Unmatched and guest sessions are not sent. Description placeholders: {device}, {group}, {types}, {admin}, {date}, {sessions}.</p>' +
+                '<form data-form="settings" class="km-panel"><h2>Mapping rules</h2><p>First matching rule wins. Unmatched and guest sessions are not sent. Complete active-time recordings sync after disconnect when review is set to Only when attention is needed or Never; Always keeps manual review. Description placeholders: {device}, {group}, {types}, {admin}, {date}, {sessions}.</p>' +
                 state.rules.map(rule).join('') +
                 '<button type="button" data-add>Add rule</button><p><label><input name="live" type="checkbox"' +
                 (state.live ? ' checked' : '') +
@@ -427,7 +427,7 @@
                 '</label> <button>Create preview</button></form>';
             if (preview)
                 h +=
-                    '<form data-form="send" class="km-panel"><h2>Review entries</h2><p>Active-time entries use start + measured duration. Check “Reviewed” after resolving flagged timing. Uncheck rows to exclude them.</p><div class="km-table"><table><thead><tr><th>Send</th><th>Begin / end</th><th>Project / activity</th><th>Description</th><th>Duration / status</th></tr></thead><tbody>' +
+                    '<form data-form="send" class="km-panel"><h2>Review entries</h2><p>Active-time entries with interval data preserve actual activity windows and exclude idle gaps. Older totals use start + measured duration. Check “Reviewed” after resolving flagged timing. Uncheck rows to exclude them.</p><div class="km-table"><table><thead><tr><th>Send</th><th>Begin / end</th><th>Project / activity</th><th>Description</th><th>Duration / status</th></tr></thead><tbody>' +
                     preview.rows
                         .map(function (b, i) {
                             return (

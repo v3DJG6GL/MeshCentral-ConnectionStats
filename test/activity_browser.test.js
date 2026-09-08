@@ -72,10 +72,31 @@ test('active time continues through the idle window across flushes without more 
     plugin.tracker.beat('s_one', 1000);
     let now = 61000;
     t.mock.method(Date, 'now', () => now);
-    plugin.flushActivity();
-    now = 121000; plugin.flushActivity();
-    now = 400000; plugin.flushActivity();
-    now = 500000; plugin.flushActivity();
+    await plugin.flushActivity();
+    now = 121000; await plugin.flushActivity();
+    now = 400000; await plugin.flushActivity();
+    now = 500000; await plugin.flushActivity();
     assert.deepEqual(updates, [60, 120, 300]);
     await Promise.resolve();
+});
+
+test('disconnect intervals are written after an older pending activity flush', async t => {
+    const plugin=create({parent:{}}), writes=[];
+    plugin.pairer=new Pairer();
+    const doc={_id:'s_one',start:1000,end:null,type:'desktop',active:null,nodename:'Device'};
+    plugin.pairer.open.one=doc;
+    plugin.tracker.beat(doc._id,1000);
+    let now=11000, release;
+    t.mock.method(Date,'now',()=>now);
+    plugin.db={updateSession:async (id,patch)=>{await new Promise(resolve=>{release=resolve;}); writes.push({kind:'flush',active:patch.active});},upsertSession:async d=>{writes.push({kind:'end',active:d.active,intervals:d.activeIntervals});}};
+    plugin.settings={recordTypes:['desktop'],minSeconds:0};
+    plugin.events.classify=()=>({kind:'end'});
+    plugin.pairer.onEnd=()=>{delete plugin.pairer.open.one;return {...doc,end:21000,seconds:20};};
+    const pending=plugin.flushActivity();
+    await new Promise(resolve=>setImmediate(resolve));
+    now=21000;
+    plugin.HandleEvent(null,{});
+    assert.equal(writes.length,0);
+    release(); await pending; await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(writes,[{kind:'flush',active:10},{kind:'end',active:20,intervals:[[1000,21000]]}]);
 });

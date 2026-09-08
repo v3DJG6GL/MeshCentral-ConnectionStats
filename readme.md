@@ -127,16 +127,22 @@ duration returned by Kimai (including configured rounding) are shown in history.
 
 Connected-time rules merge overlapping/adjacent intervals for the same destination
 and billing choice, without counting overlap twice or filling disconnected gaps.
-Active-time entries are sent only after disconnect: begin is the session start,
-end is begin plus the measured duration. They do not represent exact activity
-instants. Missing measurements and overlapping activity require a reviewed duration;
-there is no automatic fallback to connected time.
+Active-time entries are sent after disconnect. From 0.5.0 onward, observed activity
+windows are persisted and unioned across connections for the same destination.
+Idle gaps are excluded and entries keep their actual activity-window timestamps.
+These windows still use the configured idle timeout; they are not a measure of
+continuous typing. Older totals-only records use start plus measured duration and
+still require review when overlapping. Missing data never falls back to connected time.
 
 **Both automation options start disabled.** For users who open the new device
 controls, live automation starts a local shared recording for matching connected-time
 sessions. It closes after the last contributing connection disconnects. Completed
 recordings are reviewed or synchronized according to the personal review preference.
-The default preference is **Always review**. Active-time rules run after disconnect.
+The default preference is **Always review**. For new complete active-time recordings,
+**Only when attention is needed** or **Never automatically** allows automatic sync
+after all overlapping same-task connections close, independently of the connected-time
+live-timer switch and nightly schedule. Always retains manual review. Conflicts,
+missing measurements, restart uncertainty and edited drafts prevent automatic sending.
 
 ### Device controls and review
 
@@ -249,6 +255,6 @@ Mapping rules accept several connection types using checkboxes. No selected type
 
 For connected-time rules, overlapping or adjacent untouched automatic recordings share elapsed time when project, activity, duration basis and billing mode match—even across computers, groups and connection types. A shared running recording closes only when its last contributor disconnects. Gaps remain separate. Different destinations require review instead of parallel automatic billing.
 
-Active-time rules finalize after disconnect. Overlapping measured activity across tracked connections requires a reviewed duration: per-session totals cannot establish unique activity across computers. Unmatched connections are not automatically tracked for Kimai. Explicit manual starts remain available.
+Active-time rules finalize after disconnect. Complete interval measurements are merged across tracked connections from 0.5.0 onward; older per-session totals cannot establish unique activity across computers and still need review when overlapping. Unmatched connections are not automatically tracked for Kimai. Explicit manual starts remain available.
 
 Each device toolbar shows tracking status for its own connection type. A Terminal connection does not inherit the Desktop rule or clock. Its quick-stop action stops only that type on that device, preserving other contributors. The editor still shows all contributors to a shared recording; changing the whole recording affects that shared entry.

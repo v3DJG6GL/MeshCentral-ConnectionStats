@@ -39,3 +39,18 @@ test('tracker throttles bursts, tracks dirty ids and forgets', () => {
     tr.forget('s1');
     assert.equal(tr.has('s1'), false);
 });
+
+test('persistable intervals merge activity across sessions without filling idle gaps', () => {
+    const { intervals, seconds } = require('../activity');
+    const a = new Tracker(10), b = new Tracker(10);
+    a.beat('a',T); a.beat('a',T+20000);
+    b.beat('b',T+5000);
+    const merged = intervals([...a.intervalsFor('a',T,T+40000),...b.intervalsFor('b',T,T+40000)]);
+    assert.deepEqual(merged,[[T,T+15000],[T+20000,T+30000]]);
+    assert.equal(seconds(merged),25);
+    assert.equal(intervals(null),null);
+    assert.deepEqual(intervals([]),[]);
+    assert.equal(intervals([[T,'bad']]),null);
+    a.idleSeconds=60;
+    assert.deepEqual(a.intervalsFor('a',T,T+40000),[[T,T+10000],[T+20000,T+30000]],'changed idle setting does not rewrite old activity');
+});

@@ -497,3 +497,24 @@ test('multi-type rules match selected types with legacy migration and first-matc
     assert.throws(() => rules([{...rule, types:['invalid']}]), /Invalid connection types/);
     assert.equal(build([doc('x',0,1,{type:'files'})], rules([{...rule, types:[]}]), 'UTC').length, 1);
 });
+
+test('precise active intervals union across devices/types and preserve idle gaps', () => {
+    const a=doc('a',0,10,{active:120,activeIntervals:[[base,base+60000],[base+120000,base+180000]]});
+    const b=doc('b',0,10,{type:'terminal',nodeid:'node//other',active:120,activeIntervals:[[base+30000,base+150000]]});
+    const rows=build([a,b],[{...rule,basis:'active'}],'UTC');
+    assert.equal(rows.length,1); assert.equal(rows[0].seconds,180);
+    assert.equal(rows[0].issue,''); assert.equal(rows[0].preciseActive,true);
+    b.activeIntervals=[[base+30000,base+90000]];
+    const split=build([a,b],[{...rule,basis:'active'}],'UTC');
+    assert.equal(split.length,2); assert.equal(split.reduce((n,x)=>n+x.seconds,0),150);
+    assert.equal(split[1].begin,base+120000);
+});
+
+test('precise activity splits midnight and leaves legacy overlapping totals under review', () => {
+    const t=Date.parse('2026-01-05T23:59:50Z');
+    const a=doc('a',0,10,{start:t,end:t+30000,active:30,activeIntervals:[[t,t+30000]]});
+    const rows=build([a],[{...rule,basis:'active'}],'UTC');
+    assert.deepEqual(rows.map(x=>x.seconds),[10,20]);
+    const legacy={...a,_id:'b',activeIntervals:null};
+    assert.ok(build([a,legacy],[{...rule,basis:'active'}],'UTC').every(x=>/Overlapping activity/.test(x.issue)));
+});

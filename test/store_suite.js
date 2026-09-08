@@ -37,6 +37,13 @@ async function storeSuite(db, label) {
     assert.equal(u.username, 'jörg');
     assert.equal(await db.getSession('missing'), null);
 
+    const measured = [[T,T+10000],[T+20000,T+30000]];
+    await db.updateSession('s_a',{activeIntervals:measured,active:20});
+    assert.deepEqual((await db.getSession('s_a')).activeIntervals,measured,m('activity intervals update survives'));
+    await db.upsertSession({...await db.getSession('s_a'),activeIntervals:measured});
+    assert.deepEqual((await db.getSession('s_a')).activeIntervals,measured,m('activity intervals full replace survives'));
+    assert.equal((await db.getSession('s_b')).activeIntervals,null,m('legacy activity remains unknown'));
+
     // overlap semantics: a window starting after a's end excludes a, the open session b is included
     let rows = await db.findSessions({ domain: '', start: T + 70000, end: T + 200000 });
     assert.deepEqual(rows.map(r => r._id), ['s_b'], m('overlap'));

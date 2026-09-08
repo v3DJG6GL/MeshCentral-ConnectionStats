@@ -759,3 +759,78 @@ test('overlapping mapped active sessions require review, unmatched activity does
     f.step(10000); b.end=c.end=f.now; v=await f.view();
     assert.ok(v.allocations.filter(x=>x.source.includes('b')||x.source.includes('c')).every(x=>/Overlapping activity/.test(x.error)));
 });
+
+test('precise active recordings wait for contributors then sync a union automatically without review', async t => {
+    const f=setup(t); await f.ready();
+    const s=await f.service.state(f.user);
+    s.rules=[{...f.dest,basis:'active',prompt:'issues',types:['desktop','terminal']}];
+    await f.service.save(f.user,s); await f.view();
+    const start=f.now, a=f.doc('a',0);
+    a.active=10; a.activeIntervals=[[start,start+10000]];
+    f.step(5000); const b=f.doc('b',0); b.type='terminal';
+    b.active=15; b.activeIntervals=[[start+5000,start+15000],[start+20000,start+25000]];
+    f.step(15000); a.end=f.now;
+    let v=await f.view(); assert.equal(v.allocations[0].awaitingContributors,true); assert.equal(v.reviews.length,0);
+    let saved=await f.service.state(f.user);
+    await f.service.device.flush(f.user,saved,f.c); assert.equal(f.remotes.length,0);
+    f.step(10000); b.end=f.now; v=await f.view();
+    assert.equal(v.allocations.length,1);
+    let recording=v.allocations[0];
+    assert.equal(recording.preciseActive,true); assert.equal(recording.seconds,20); assert.ok(!recording.error);
+    saved=await f.service.state(f.user); await f.service.device.flush(f.user,saved,f.c);
+    assert.equal(f.remotes.length,2); assert.equal(f.remotes.reduce((n,x)=>n+x.duration,0),20);
+    assert.equal((await f.view()).reviews.length,0);
+    saved=await f.service.state(f.user); await f.service.device.flush(f.user,saved,f.c);
+    assert.equal(f.remotes.length,2);
+    assert.deepEqual(available(saved,[a,b]),[]);
+});
+
+test('partial precise exports preserve remaining activity instead of reserving the entire source', () => {
+    const start=100000;
+    const doc={_id:'s_x',start,end:start+30000,active:20,activeIntervals:[[start,start+10000],[start+20000,start+30000]]};
+    const state={allocations:{},ledger:{one:{basis:'active',preciseActive:true,source:['s_x'],begin:start,end:start+10000,coverageBegin:start,coverageEnd:start+10000}}};
+    const remaining=available(state,[doc]);
+    assert.equal(remaining.length,1);
+    assert.deepEqual(remaining[0].activeIntervals,[[start+20000,start+30000]]);
+    assert.equal(remaining[0].active,10);
+});
+
+test('precise active destinations that overlap remain blocked from automatic parallel billing', async t => {
+    const f=setup(t); await f.ready();
+    const s=await f.service.state(f.user);
+    s.rules=[{...f.dest,basis:'active',device:'node//a',prompt:'issues'},{...f.dest,project:9,basis:'active',device:'node//b',prompt:'issues'}];
+    await f.service.save(f.user,s); await f.view();
+    const start=f.now, a=f.doc('a',0),b=f.doc('b',0);
+    a.activeIntervals=b.activeIntervals=[[start,start+10000]]; a.active=b.active=10;
+    f.step(10000); a.end=b.end=f.now;
+    const v=await f.view(); assert.ok(v.allocations.every(x=>/Overlapping destinations/.test(x.error)));
+    await f.service.device.flush(f.user,await f.service.state(f.user),f.c);
+    assert.equal(f.remotes.length,0);
+});
+
+test('activity in another destination can fill an idle gap without parallel billing', async t => {
+    const f=setup(t); await f.ready();
+    const s=await f.service.state(f.user);
+    s.rules=[{...f.dest,basis:'active',device:'node//a',prompt:'issues'},{...f.dest,project:9,basis:'active',device:'node//b',prompt:'issues'}];
+    await f.service.save(f.user,s); await f.view();
+    const start=f.now, a=f.doc('a',0), b=f.doc('b',0);
+    a.activeIntervals=[[start,start+10000],[start+20000,start+30000]]; a.active=20;
+    b.activeIntervals=[[start+10000,start+20000]]; b.active=10;
+    f.step(30000); a.end=b.end=f.now;
+    const v=await f.view(); assert.ok(v.allocations.every(x=>!x.error));
+    await f.service.device.flush(f.user,await f.service.state(f.user),f.c);
+    assert.equal(f.remotes.length,3); assert.equal(f.remotes.reduce((n,x)=>n+x.duration,0),30);
+});
+
+test('always-review policy and truncated intervals do not auto-send', async t => {
+    const f=setup(t); await f.ready(); const s=await f.service.state(f.user);
+    s.rules=[{...f.dest,basis:'active',prompt:'always'}]; await f.service.save(f.user,s); await f.view();
+    const start=f.now, a=f.doc('a',0); a.activeIntervals=[[start,start+10000]]; a.active=10;
+    f.step(10000); a.end=f.now;
+    await f.view(); await f.service.device.flush(f.user,await f.service.state(f.user),f.c);
+    assert.equal(f.remotes.length,0);
+    const b=f.doc('b',0); b.activeIntervals=[[f.now,f.now+10000]]; b.active=10; b.truncated=true;
+    f.step(10000); b.end=f.now;
+    const v=await f.view(); const truncated=v.allocations.find(x=>x.source.includes('b'));
+    assert.notEqual(truncated.preciseActive,true); assert.match(truncated.error,/uncertain/);
+});

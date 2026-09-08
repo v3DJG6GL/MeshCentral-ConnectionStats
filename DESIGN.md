@@ -163,8 +163,8 @@ accounting behavior, recovery, and test instructions. This supersedes the origin
   MeshCentral owner. Guests and other users' sessions cannot be sent.
 - Connected time unions overlapping or adjacent same-destination intervals but
   preserves all disconnected gaps. Different destinations require review.
-- Active time is sent after disconnect as start plus measured duration. Missing
-  data and overlapping active measurements require an explicit reviewed duration.
+- Active time is sent after disconnect as a union of persisted activity windows (0.5.0).
+  Missing/legacy totals and uncertain restart data still require review when overlapping.
 - Editable manual preview, optional nightly sync at 02:00 in the account timezone,
   and optional automatic live timers. Both automation modes default off.
 - Daily completed entries; live timers can cross midnight and split on closure.
@@ -315,3 +315,14 @@ Rules persist a `types` array (empty means wildcard), with legacy `type` strings
 Device toolbars scope status, clocks, popup selection, and quick stop by node and connection type. Only mapped sessions or open allocation contributors receive Kimai clocks; a closed contributor cannot inherit the status of a shared allocation still running elsewhere.
 
 After source lifecycle reconciliation, untouched automatic connected allocations are unioned transitively by project/activity/billable destination, including open-ended intervals. Merge preserves source membership, spans, strictest review policy and tags. Entries with drafts, errors or remote block history remain separate for review. Separate destinations retain overlap protection. Active totals remain unmergeable without event-level activity intervals; overlapping tracked sources require review instead of summation.
+
+
+### Durable active intervals (0.5.0)
+
+The tracker stores canonical half-open millisecond intervals for heartbeat plus idle-timeout windows, clipped to the source connection. The idle timeout is captured with each heartbeat, so settings changes do not rewrite earlier activity. The session stores `activeIntervals` alongside the aggregate `active` total. Null means unavailable/legacy; an empty array means observed zero. The common document shape persists arrays in MongoDB/NeDB and the existing JSON document field in all SQL backends; no schema migration is needed. Source writes are serialized per session so an older activity flush cannot overwrite disconnect measurements. Crash-recovered open sessions remain truncated and are never treated as complete.
+
+New active allocations retain full source spans plus canonical activity windows. Same-destination allocations union intervals transitively when their source sessions overlap/abut; idle gaps are preserved. They wait while a same-destination contributing session remains open. Completed windows are normalized to whole-second boundaries and split at local midnight before sending. Destination overlap checks use actual windows, not the envelope containing idle gaps. Legacy totals cannot be reconstructed; they keep explicit duration review.
+
+Complete new active recordings automatically sync when their effective review policy is issues/never, independently of the connected-time live switch and nightly schedule. Always still requires review. Errors, drafts, unresolved remote operations, locks and uncertain contributors block automatic sending. Source membership and interval pieces are persisted before remote calls and share existing marker reconciliation. Precise standalone preview exports reserve exported windows rather than the entire source; remaining windows stay available without duplicating already-sent activity.
+
+Review UI distinguishes unique active duration and explains that editing envelope start/end replaces the measured windows with a user-reviewed continuous duration. Existing allocations with drafts or remote history are not silently regrouped.

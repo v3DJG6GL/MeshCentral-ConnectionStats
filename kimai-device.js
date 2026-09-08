@@ -4,7 +4,9 @@ const crypto = require('crypto');
 const digest = (x) => crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const second = (n) => Math.floor(n / 1000) * 1000;
 const infinity = (n) => (n == null ? Infinity : n);
-const overlap = (a, b) => a.begin < infinity(b.end) && b.begin < infinity(a.end);
+const activityTime = require('./activity');
+const windows = a => a.preciseActive && Array.isArray(a.activeIntervals) ? a.activeIntervals : [[a.begin,infinity(a.end)]];
+const overlap = (a, b) => windows(a).some(x => windows(b).some(y => x[0]<y[1] && y[0]<x[1]));
 function subtract(begin, end, occupied) {
     let spans = [{ begin, end }];
     for (const x of occupied)
@@ -104,8 +106,8 @@ function cuts(s, doc) {
     for (const l of Object.values(s.ledger || {})) {
         if (l.allocation || !l.source?.includes(doc._id)) continue;
         out.push({
-            begin: l.basis === 'active' ? doc.start : (l.coverageBegin ?? l.begin),
-            end: l.basis === 'active' ? doc.end : l.end == null ? null : (l.coverageEnd ?? l.end),
+            begin: l.basis === 'active' && !l.preciseActive ? doc.start : (l.coverageBegin ?? l.begin),
+            end: l.basis === 'active' && !l.preciseActive ? doc.end : l.end == null ? null : (l.coverageEnd ?? l.end),
         });
     }
     return out;
@@ -126,8 +128,8 @@ function indexCuts(s, docs) {
                 const d = byId.get(id);
                 if (d)
                     add(id, {
-                        begin: l.basis === 'active' ? d.start : (l.coverageBegin ?? l.begin),
-                        end: l.basis === 'active' ? d.end : l.end == null ? null : (l.coverageEnd ?? l.end),
+                        begin: l.basis === 'active' && !l.preciseActive ? d.start : (l.coverageBegin ?? l.begin),
+                        end: l.basis === 'active' && !l.preciseActive ? d.end : l.end == null ? null : (l.coverageEnd ?? l.end),
                     });
             }
     return map;
@@ -139,7 +141,10 @@ function available(s, docs) {
         if (!occupied.length) return [d];
         // Aggregate active measurements cannot be divided between partially covered intervals.
         const remainder = subtract(d.start, d.end, occupied);
-        return remainder.map((x) => ({ ...d, start: x.begin, end: x.end, active: null }));
+        return remainder.map((x) => {
+            const activeIntervals = activityTime.intervals(d.activeIntervals,x.begin,infinity(x.end));
+            return {...d,start:x.begin,end:x.end,activeIntervals,active:activeIntervals === null ? null : activityTime.seconds(activeIntervals)};
+        });
     });
 }
 function reserved(s, block) {
@@ -231,7 +236,7 @@ class Device {
         const { draft, ...out } = a;
         out.prompt = a.prompt || s.device?.preferences.prompt || 'always';
         out.overlap = (a.blocks || []).map((id) => s.ledger[id]?.overlap).find(Boolean) || null;
-        out.seconds = Math.max(0, ((a.end ?? second(Date.now())) - a.begin) / 1000);
+        out.seconds = a.preciseActive ? activityTime.seconds(a.activeIntervals) : Math.max(0, ((a.end ?? second(Date.now())) - a.begin) / 1000);
         out.remoteIds = (a.blocks || []).map((id) => s.ledger[id]?.remoteId).filter(Boolean);
         out.remoteSeconds = (a.blocks || []).reduce((n, id) => n + (s.ledger[id]?.remoteSeconds || 0), 0);
         out.draft = draft || null;
@@ -414,7 +419,22 @@ class Device {
                         s.allocations[a.id] = a;
                         continue;
                     }
-                    if (r?.basis === 'active') {
+                    if (r.basis === 'active' && !doc.truncated) {
+                        const measured = activityTime.intervals(doc.activeIntervals,piece.begin,piece.end);
+                        if (measured !== null) {
+                            a.preciseActive = true;
+                            a.activeIntervals = activityTime.intervals(measured.map(x => x.map(second)));
+                            a.sourceBegin = doc.start;
+                            a.sourceEnd = doc.end;
+                            if (!a.activeIntervals.length) {
+                                a.status = 'excluded'; a.review = false;
+                            } else {
+                                a.begin = a.activeIntervals[0][0];
+                                a.end = a.activeIntervals[a.activeIntervals.length-1][1];
+                            }
+                        }
+                    }
+                    if (r?.basis === 'active' && !a.preciseActive) {
                         a.sourceEnd = doc.end;
                         a.active = doc.active;
                         if (doc.active == null || piece.begin !== doc.start || piece.end !== doc.end)
@@ -479,16 +499,22 @@ class Device {
         // Union all untouched automatic connected recordings, including transitive bridges
         // and a completed contributor that overlaps a still-open connection.
         const groups = new Map();
-        for (const a of Object.values(s.allocations).sort((a, b) => a.begin - b.begin)) {
-            if (a.origin !== 'rule' || a.basis !== 'connected' || a.error || a.draft ||
+        for (const a of Object.values(s.allocations).sort((a, b) => (a.preciseActive ? a.sourceBegin : a.begin) - (b.preciseActive ? b.sourceBegin : b.begin))) {
+            if (a.origin !== 'rule' || (a.basis !== 'connected' && !a.preciseActive) || a.error || a.draft ||
                 a.blocks.length || !['review', 'recording-local'].includes(a.status)) continue;
-            const key = JSON.stringify([a.project, a.activity, a.billable]);
+            const key = JSON.stringify([a.project, a.activity, a.billable, a.basis, !!a.preciseActive]);
             const prior = groups.get(key);
-            if (!prior || a.begin > infinity(prior.end)) {
+            if (!prior || (a.preciseActive ? a.sourceBegin > prior.sourceEnd : a.begin > infinity(prior.end))) {
                 groups.set(key, a);
                 continue;
             }
             prior.end = prior.end == null || a.end == null ? null : Math.max(prior.end, a.end);
+            if (a.preciseActive) {
+                prior.activeIntervals = activityTime.intervals(prior.activeIntervals.concat(a.activeIntervals));
+                prior.begin = prior.activeIntervals[0][0]; prior.end = prior.activeIntervals[prior.activeIntervals.length-1][1];
+                prior.sourceBegin = Math.min(prior.sourceBegin,a.sourceBegin);
+                prior.sourceEnd = Math.max(prior.sourceEnd,a.sourceEnd);
+            }
             prior.source = [...new Set(prior.source.concat(a.source))];
             prior.spans.push(...a.spans);
             prior.prompt = strictPrompt(prior.prompt || cfg.preferences.prompt, a.prompt || cfg.preferences.prompt);
@@ -498,6 +524,20 @@ class Device {
             prior.status = prior.review ? 'review' : 'recording-local';
             revise(prior);
             delete s.allocations[a.id];
+        }
+        for (const a of Object.values(s.allocations)) {
+            if (!a.preciseActive || ['excluded','synced','kept'].includes(a.status)) continue;
+            a.awaitingContributors = docs.some(d => {
+                const r = match(d,s.rules || []);
+                return d.end == null && !d.guest && r && r.basis === 'active' &&
+                    r.project === a.project && r.activity === a.activity && (r.billable !== false) === a.billable && d.start < a.sourceEnd;
+            });
+            if (a.awaitingContributors) a.review = false;
+            else if (a.status === 'review') a.review = true;
+            const uncertain = docs.some(d => d._id && !a.source.includes(d._id) && !d.guest &&
+                !Object.values(s.allocations).some(x => x.status === 'excluded' && x.source.includes(d._id)) && d.start < a.sourceEnd && a.sourceBegin < infinity(d.end) &&
+                match(d,s.rules || [])?.basis === 'active' && (d.truncated || activityTime.intervals(d.activeIntervals) === null));
+            if (uncertain && !a.awaitingContributors) { a.error = 'Overlapping activity requires a reviewed duration'; a.review = true; }
         }
         // Flag both destinations before any automation can bill one side of an overlap.
         const entries = Object.values(s.allocations)
@@ -535,7 +575,7 @@ class Device {
         }
         if (ambiguous(a.begin, s.tz) || ambiguous(a.end, s.tz))
             throw Error('Ambiguous daylight-saving timestamp');
-        const pieces = days(a.begin, a.end, s.tz);
+        const pieces = windows(a).flatMap(([begin,end]) => days(begin,end,s.tz));
         if (a.blocks.length > pieces.length) throw Error('Changed daily membership requires review in Kimai');
         for (let i = 0; i < pieces.length; i++) {
             const id = a.blocks[i] || digest([a.id, pieces[i][0]]);
@@ -577,7 +617,7 @@ class Device {
             p = time.partsIn(now, s.tz),
             today = time.fromLocal(p.y, p.m, p.d, 0, 0, s.tz);
         for (const a of Object.values(s.allocations)) {
-            if (a.end == null || ['excluded', 'synced', 'kept'].includes(a.status)) continue;
+            if (a.end == null || a.awaitingContributors || ['excluded', 'synced', 'kept'].includes(a.status)) continue;
             if (a.remoteLive) {
                 try {
                     await this.owned(user, a.source);
@@ -602,8 +642,8 @@ class Device {
                 a.sendRequested ||
                 (a.origin === 'rule' &&
                     (a.prompt || cfg.preferences.prompt) !== 'always' &&
-                    !a.error &&
-                    (s.live || (s.nightly && p.h >= 2 && a.end <= today)))
+                    !a.error && !a.draft &&
+                    (a.preciseActive || s.live || (s.nightly && p.h >= 2 && a.end <= today)))
             ) {
                 try {
                     await this.owned(user, a.source);
@@ -968,6 +1008,7 @@ class Device {
                 delete a.draft;
                 return remember({ ok: true });
             }
+            if (a.awaitingContributors) throw Error('Wait for the other contributing connections to disconnect');
             const { epoch } = this.helpers();
             const begin = row.beginLocal ? epoch(row.beginLocal, s.tz) : a.begin,
                 end = row.endLocal ? epoch(row.endLocal, s.tz) : a.end;
@@ -978,8 +1019,12 @@ class Device {
             if (/Active-time|Overlapping activity/.test(a.error || '') && begin === a.begin && end === a.end)
                 throw Error('Enter a reviewed duration for missing or overlapping activity');
             for (const other of Object.values(s.allocations))
-                if (other.id !== a.id && other.status !== 'excluded' && overlap({ begin, end }, other))
+                if (other.id !== a.id && other.status !== 'excluded' && overlap(a.preciseActive && begin === a.begin && end === a.end ? a : { begin, end }, other))
                     throw Error('This time overlaps another recording; adjust it before sending');
+            if (a.preciseActive && (begin !== a.begin || end !== a.end)) {
+                a.preciseActive = false;
+                delete a.activeIntervals;
+            }
             Object.assign(a, dest, { begin, end, sendRequested: true });
             delete a.draft;
             revise(a);

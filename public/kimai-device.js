@@ -451,6 +451,9 @@
                     ? esc(title(a)) + ' · ' + duration(a.seconds) + '<br>' + esc(state.timezone || 'UTC')
                     : 'Choose a destination for this recording. No mapping rule is required.') +
                 '</p>' +
+                (a && a.preciseActive
+                    ? '<p>Measured active intervals are merged across contributing connections; idle gaps are excluded. Changing start/end replaces them with the continuous duration you enter.</p>'
+                    : '') +
                 (a && a.error ? '<p class="cs-kd-warning">' + esc(a.error) + '</p>' : '') +
                 (a && /overlap/i.test(a.error || '')
                     ? '<p>Adjust the start/end below, or review the existing entry in Kimai. Overlapping billing is not approved automatically.</p>'
@@ -518,7 +521,7 @@
                     : '') +
                 '<details><summary>Timing and billing</summary><label>Duration basis<select name="basis"><option value="connected">Connected time</option><option value="active"' +
                 (data.basis === 'active' ? ' selected' : '') +
-                '>Measured active time (after disconnect)</option></select></label><small>Missing or overlapping active measurements require review.</small>' +
+                '>Measured active time (after disconnect)</option></select></label><small>Missing activity intervals or conflicting destinations require review. Complete same-destination activity is merged automatically.</small>' +
                 rowField(
                     'tags',
                     'Tags (comma separated)',
@@ -966,7 +969,8 @@
                             esc(times.begin.replace('T', ' ')) +
                             ' to ' +
                             esc(times.end.replace('T', ' ')) +
-                            '<br>Source duration ' +
+                            '<br>' +
+                            (a.preciseActive ? 'Unique active duration ' : 'Source duration ') +
                             duration(a.seconds) +
                             '<br>' +
                             esc(name('customers', row.customer)) +

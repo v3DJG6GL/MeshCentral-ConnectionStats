@@ -1,3 +1,10 @@
+## 0.5.0 — 2026-09-08
+
+- Persist measured active intervals across all stores and merge same-destination activity across devices/types without double-counting or filling idle gaps.
+- Wait for overlapping contributors to finish; export actual activity windows split at local midnight, using the shared synchronization ledger.
+- Automatically sync complete active recordings with issues-only/never review policies. Always-review, drafts, legacy totals, missing data, restart uncertainty and real conflicts retain review.
+- Preserve remaining measured activity after partial exports and serialize activity/disconnect writes. Display unique active duration in review.
+
 ## 0.4.9 — 2026-09-08
 
 - Select multiple connection types in each mapping rule; existing single-type rules retain their meaning.

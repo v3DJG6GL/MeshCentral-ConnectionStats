@@ -431,6 +431,14 @@ module.exports.connectionstats = function (parent) {
     // ------------------------------------------------------------------
     // bumps whenever a session is written, so the page can notice changes cheaply (api=seq)
     obj.seq = 0;
+    var sessionWrites = new Map();
+    function sessionWrite(id, fn) {
+        var prior = sessionWrites.get(id);
+        var work = prior ? prior.catch(function () {}).then(fn) : Promise.resolve().then(fn);
+        sessionWrites.set(id, work);
+        work.finally(function () { if (sessionWrites.get(id) === work) sessionWrites.delete(id); }).catch(function () {});
+        return work;
+    }
     function wrote(p) { return p.then(function (r) { obj.seq++; if (obj.kimai) obj.kimai.kick(); return r; }); }
 
     obj.HandleEvent = function (source, event, ids, id) {
@@ -444,7 +452,7 @@ module.exports.connectionstats = function (parent) {
                 if (doc == null) return;
                 obj.resolveNames(doc.nodeid, function (names) {
                     doc.meshid = names.meshid; doc.nodename = names.nodename; doc.meshname = names.meshname;
-                    wrote(obj.db.upsertSession(doc)).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
+                    wrote(sessionWrite(doc._id, function () { return obj.db.upsertSession(doc); })).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
                 });
             } else {
                 var done = obj.pairer.onEnd(c);
@@ -452,17 +460,17 @@ module.exports.connectionstats = function (parent) {
                 if (obj.settings.recordTypes.indexOf(done.type) < 0) return;
                 if (done.seconds < obj.settings.minSeconds) {
                     // too short to be a session (a misclick): drop the open record if one was written
-                    wrote(obj.db.removeSession(done._id)).catch(function () { });
+                    wrote(sessionWrite(done._id, function () { return obj.db.removeSession(done._id); })).catch(function () { });
                     return;
                 }
                 obj.finalizeActive(done);
                 if (done.truncated && done.nodename == null) {
                     obj.resolveNames(done.nodeid, function (names) {
                         done.meshid = names.meshid; done.nodename = names.nodename; done.meshname = names.meshname;
-                        wrote(obj.db.upsertSession(done)).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
+                        wrote(sessionWrite(done._id, function () { return obj.db.upsertSession(done); })).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
                     });
                 } else {
-                    wrote(obj.db.upsertSession(done)).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
+                    wrote(sessionWrite(done._id, function () { return obj.db.upsertSession(done); })).catch(function (e) { console.log('CONNSTATS: write error: ' + (e.message || e)); });
                 }
             }
         } catch (e) { console.log('CONNSTATS: event error: ' + (e.message || e)); }
@@ -472,7 +480,8 @@ module.exports.connectionstats = function (parent) {
     // by a browser with the plugin keep active = null ("no data").
     obj.finalizeActive = function (doc) {
         if (!obj.tracker.has(doc._id)) return;
-        doc.active = obj.tracker.activeFor(doc._id, doc.start, doc.end);
+        doc.activeIntervals = obj.tracker.intervalsFor(doc._id, doc.start, doc.end);
+        doc.active = obj.activity.seconds(doc.activeIntervals);
         doc.lastbeat = obj.tracker.lastBeat(doc._id);
         obj.tracker.forget(doc._id);
     };
@@ -485,12 +494,14 @@ module.exports.connectionstats = function (parent) {
             Object.keys(obj.tracker.beats).forEach(function (sid) {
                 var open = obj.pairer.open[sid.substring(2)];
                 if (open == null) { obj.tracker.forget(sid); return; }
-                var patch = { active: obj.tracker.activeFor(sid, open.start, null), lastbeat: obj.tracker.lastBeat(sid) };
-                if (open.active === patch.active && open.lastbeat === patch.lastbeat) return;
+                var patch = { activeIntervals: obj.tracker.intervalsFor(sid, open.start, null), active: obj.tracker.activeFor(sid, open.start, null), lastbeat: obj.tracker.lastBeat(sid) };
+                if (!open._activityWriteFailed && open.active === patch.active && open.lastbeat === patch.lastbeat && Array.isArray(open.activeIntervals)) return;
+                open.activeIntervals = patch.activeIntervals;
                 open.active = patch.active; open.lastbeat = patch.lastbeat;
-                wrote(obj.db.updateSession(sid, patch)).catch(function () { });
+                wrote(sessionWrite(sid, function () { return obj.db.updateSession(sid, patch); })).then(function () { open._activityWriteFailed = false; }).catch(function () { open._activityWriteFailed = true; });
             });
         } catch (e) { console.log('CONNSTATS: flush error: ' + (e.message || e)); }
+        return Promise.allSettled(Array.from(sessionWrites.values()));
     };
 
     // node and group names are stored with the session so history survives device deletion

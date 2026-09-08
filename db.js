@@ -111,6 +111,7 @@ var normDoc = function (d) {
         end: (d.end == null) ? null : intOr(d.end, null),
         seconds: Math.max(0, intOr(d.seconds, 0)),
         active: (d.active == null) ? null : Math.max(0, intOr(d.active, 0)),
+        activeIntervals: require('./activity').intervals(d.activeIntervals, intOr(d.start, 0), d.end == null ? Infinity : intOr(d.end, 0)),
         lastbeat: (d.lastbeat == null) ? null : intOr(d.lastbeat, null),
         bytesin: Math.max(0, intOr(d.bytesin, 0)), bytesout: Math.max(0, intOr(d.bytesout, 0)),
         ip: strOrNull(d.ip, 64),

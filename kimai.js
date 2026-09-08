@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
 const time = require('./aggregate');
+const activityTime = require('./activity');
 const hash = (x) =>
     crypto
         .createHash('sha256')
@@ -81,12 +82,16 @@ function build(sessions, rs, tz, defaultMinSeconds = 0) {
             if (!r || (s.end - s.start) / 1000 < (r.minSeconds ?? defaultMinSeconds)) return;
             let issue = '',
                 end = s.end;
-            if (r.basis === 'active') {
+            const measured = r.basis === 'active' && !s.truncated ? activityTime.intervals(s.activeIntervals, s.start, s.end) : null;
+            const preciseActive = measured !== null && measured !== false;
+            if (r.basis === 'active' && !preciseActive) {
                 if (s.active == null) issue = 'Active-time measurement unavailable';
                 else end = s.start + Math.min(Math.max(0, s.active), (s.end - s.start) / 1000) * 1000;
             }
+            if (s.truncated && r.basis === 'active') issue = 'Connection end is uncertain; review the active duration';
             if (end <= s.start && !issue) return;
-            days(s.start, Math.max(s.start + 1000, end), tz).forEach(([begin, finish]) => {
+            const windows = preciseActive ? activityTime.intervals(measured.map(x => x.map(t => Math.floor(t/1000)*1000))) : [[s.start, Math.max(s.start + 1000,end)]];
+            windows.flatMap(([lo,hi]) => days(lo,hi,tz)).forEach(([begin, finish]) => {
                 const fields = {
                     device: s.nodename || s.nodeid,
                     group: s.meshname || s.meshid || '',
@@ -102,6 +107,7 @@ function build(sessions, rs, tz, defaultMinSeconds = 0) {
                     activity: r.activity,
                     billable: r.billable !== false,
                     basis: r.basis,
+                    preciseActive,
                     description: r.description.replace(
                         /\{(device|group|types|admin|date|sessions)\}/g,
                         (_, k) => fields[k],
@@ -134,7 +140,7 @@ function build(sessions, rs, tz, defaultMinSeconds = 0) {
             if (
                 a.source[0] !== b.source[0] &&
                 Math.max(a.sourceBegin, b.sourceBegin) < Math.min(a.sourceEnd, b.sourceEnd) &&
-                (a.basis === 'active' || b.basis === 'active')
+                ((a.basis === 'active' && !a.preciseActive) || (b.basis === 'active' && !b.preciseActive))
             )
                 a.issue = b.issue = 'Overlapping activity requires a reviewed duration';
             else if (
@@ -150,9 +156,9 @@ function build(sessions, rs, tz, defaultMinSeconds = 0) {
     const merged = [],
         previous = new Map();
     blocks.forEach((b) => {
-        const key = [b.project, b.activity, b.billable, wall(b.begin, tz).slice(0, 10)].join('|'),
+        const key = [b.project, b.activity, b.billable, b.basis, !!b.preciseActive, wall(b.begin, tz).slice(0, 10)].join('|'),
             candidate = previous.get(key);
-        const prev = b.basis === 'connected' && !b.issue && candidate && b.begin <= candidate.end ? candidate : null;
+        const prev = (b.basis === 'connected' || b.preciseActive) && !b.issue && candidate && b.begin <= candidate.end ? candidate : null;
         if (prev) {
             prev.end = Math.max(prev.end, b.end);
             prev.sourceEnd = Math.max(prev.sourceEnd, b.sourceEnd);
@@ -161,7 +167,7 @@ function build(sessions, rs, tz, defaultMinSeconds = 0) {
             prev.tags = [...new Set((prev.tags + ',' + b.tags).split(','))].join(',');
         } else {
             merged.push(b);
-            if (!b.issue && b.basis === 'connected') previous.set(key, b);
+            if (!b.issue && (b.basis === 'connected' || b.preciseActive)) previous.set(key, b);
         }
     });
     return merged.map((b) => {
@@ -771,6 +777,7 @@ class Service {
                 'source',
                 'basis',
                 'live',
+                'preciseActive',
                 'sourceBegin',
                 'sourceEnd',
                 'coverageBegin',
