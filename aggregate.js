@@ -202,4 +202,39 @@ function aggregate(sessions, opts) {
     };
 }
 
-module.exports = { aggregate: aggregate, startCell: startCell, bucketEdges: bucketEdges, autoBucket: autoBucket, previousRange: previousRange, partsIn: partsIn, fromLocal: fromLocal, isoLocal: isoLocal, offsetMinutes: offsetMinutes, BUCKETS: BUCKETS };
+// one row per local day for the session list's "by day" view, newest first. A session that crosses
+// midnight counts on each day it touches and gives each its share of time, active time and bytes.
+function byDay(sessions, opts) {
+    var start = opts.start, end = opts.end, tz = opts.tz || 'UTC', now = opts.now || Date.now(), days = {};
+    (sessions || []).forEach(function (s) {
+        var e = (s.end == null) ? now : s.end;
+        var cs = Math.max(s.start, start), ce = Math.min(e, end), full = (e - s.start) / 1000;
+        if (!(ce > cs)) return;
+        for (var t = floorTo(cs, 'day', tz), guard = 0; t < ce && guard++ < 4000;) {
+            var n = nextEdge(t, 'day', tz);
+            if (n <= t) n = t + DAY;
+            var v = (Math.min(ce, n) - Math.max(cs, t)) / 1000;
+            if (v > 0) {
+                var r = days[t] || (days[t] = { s: t, e: n, count: 0, ongoing: 0, seconds: 0, active: 0, seenSeconds: 0, by: {}, bytesin: 0, bytesout: 0, devices: {}, groups: {}, users: {} });
+                var frac = full > 0 ? v / full : 1;
+                r.count++; if (s.end == null) r.ongoing++;
+                r.seconds += v; r.by[s.type] = (r.by[s.type] || 0) + v;
+                if (s.active != null) { r.active += s.active * frac; r.seenSeconds += v; }
+                r.bytesin += (s.bytesin || 0) * frac; r.bytesout += (s.bytesout || 0) * frac;
+                r.devices[s.nodename || s.nodeid || '?'] = 1;
+                r.groups[s.meshname || s.meshid || 'No group'] = 1;
+                r.users[s.guest ? 'Guest: ' + s.guest : (s.username || s.userid || '?')] = 1;
+            }
+            t = n;
+        }
+    });
+    return Object.keys(days).map(function (k) {
+        var r = days[k];
+        ['seconds', 'active', 'seenSeconds', 'bytesin', 'bytesout'].forEach(function (f) { r[f] = Math.round(r[f]); });
+        for (var t in r.by) r.by[t] = Math.round(r.by[t]);
+        ['devices', 'groups', 'users'].forEach(function (f) { r[f] = Object.keys(r[f]).sort(); });
+        return r;
+    }).sort(function (a, b) { return b.s - a.s; });
+}
+
+module.exports = { aggregate: aggregate, byDay: byDay, startCell: startCell, bucketEdges: bucketEdges, autoBucket: autoBucket, previousRange: previousRange, partsIn: partsIn, fromLocal: fromLocal, isoLocal: isoLocal, offsetMinutes: offsetMinutes, BUCKETS: BUCKETS };

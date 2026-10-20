@@ -642,12 +642,21 @@ module.exports.connectionstats = function (parent) {
         return obj.perms.filterFor(user, p).then(function (f) {
             if (f == null) return { error: 'Not allowed to see this scope', status: 403 };
             var skip = intq(q.skip, 0), limit = Math.min(Math.max(intq(q.limit, 50), 1), 500);
-            if (q.wd != null || q.hour != null) {
-                // a punchcard cell: sessions that start on that weekday and hour (local to tz). The
-                // store cannot filter by that, so page in memory over the range.
-                var wd = intq(q.wd, -1), hour = intq(q.hour, -1);
+            var cell = (q.wd != null || q.hour != null), wd = intq(q.wd, -1), hour = intq(q.hour, -1);
+            // a punchcard cell: sessions that start on that weekday and hour (local to tz). The
+            // store cannot filter by that, so it is done in memory over the range.
+            var inCell = function (rows) {
+                return cell ? rows.filter(function (d) { var c = obj.aggregate.startCell(d, p.start, p.tz); return (wd < 0 || c.wd == wd) && (hour < 0 || c.h == hour); }) : rows;
+            };
+            if (q.group == 'day') {
                 return obj.db.findSessions(f).then(function (rows) {
-                    rows = rows.filter(function (d) { var c = obj.aggregate.startCell(d, p.start, p.tz); return (wd < 0 || c.wd == wd) && (hour < 0 || c.h == hour); });
+                    var days = obj.aggregate.byDay(inCell(rows), { start: p.start, end: p.end, tz: p.tz });
+                    return { rows: days.slice(skip, skip + limit), total: days.length, skip: skip, group: 'day' };
+                });
+            }
+            if (cell) {
+                return obj.db.findSessions(f).then(function (rows) {
+                    rows = inCell(rows);
                     rows.sort(function (a, b) { return b.start - a.start; });
                     return { rows: rows.slice(skip, skip + limit).map(obj.sessionRow), total: rows.length, skip: skip };
                 });

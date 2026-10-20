@@ -99,3 +99,22 @@ test('calendar daily type totals split sessions correctly at midnight', () => {
     assert.equal(a.daily[0].tot, 3600); assert.deepEqual(a.daily[0].by, { desktop: 3600 });
     assert.equal(a.daily[1].tot, 5400); assert.deepEqual(a.daily[1].by, { desktop: 3600, files: 1800 });
 });
+
+test('byDay splits sessions at local midnight, newest day first', () => {
+    const tz = 'Europe/Zurich', H = 3600000;
+    const d1 = Date.UTC(2026, 8, 7, 22), d2 = d1 + 24 * H;   // midnight in Zurich (UTC+2)
+    const rows = ag.byDay([
+        { start: d1 + 23 * H, end: d1 + 25 * H, type: 'desktop', nodename: 'A', meshname: 'G', username: 'ann', active: 3600, bytesin: 2000, bytesout: 1000 },
+        { start: d1 + H, end: d1 + 2 * H, type: 'terminal', nodename: 'B', meshname: 'G', userid: 'user//bob' },
+        { start: d1 - 2 * H, end: d1 - H, type: 'files', nodename: 'C', guest: 'eve' }
+    ], { start: d1, end: d2 + 24 * H, tz });
+    assert.equal(rows.length, 2);
+    assert.deepEqual(rows.map(r => r.s), [d2, d1]);
+    const [second, first] = rows;
+    assert.equal(first.count, 2); assert.equal(first.seconds, 7200);
+    assert.deepEqual(first.by, { desktop: 3600, terminal: 3600 });
+    assert.equal(first.active, 1800); assert.equal(first.seenSeconds, 3600);
+    assert.equal(first.bytesin, 1000);
+    assert.deepEqual(first.devices, ['A', 'B']); assert.deepEqual(first.users, ['ann', 'user//bob']); assert.deepEqual(first.groups, ['G']);
+    assert.equal(second.count, 1); assert.equal(second.seconds, 3600); assert.equal(second.bytesout, 500);
+});

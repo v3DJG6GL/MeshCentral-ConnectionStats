@@ -1,3 +1,8 @@
+## 0.5.2 — 2026-10-20
+
+- Session table: show or hide columns, choose a height (or drag the table's corner), remembered per viewer.
+- Session table: "By day" view with one row per local day: sessions, connected and active time, types, devices, groups, admins and bytes. Sessions crossing midnight are split between days.
+
 ## 0.5.1 — 2026-10-20
 
 - Device tab: fit the frame to the visible space in MeshCentral's fullscreen layout, which never scrolls, so long session lists can be scrolled to the end.

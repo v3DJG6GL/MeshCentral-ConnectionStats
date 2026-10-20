@@ -383,3 +383,47 @@ test('a column selects every shown type of its bucket and the selection shows it
     assert.match(urls.filter(u => u.includes('api=sessions')).pop(), /types=desktop(&|$)/);
     assert.match(d.root.innerHTML, /data-act="alltypes"/);
 });
+
+test('session table hides chosen columns, groups by day and keeps a chosen height, all per viewer', async () => {
+    const start = new Date(2023, 11, 1).getTime(), end = new Date(2023, 11, 3).getTime(), urls = [];
+    const aggregate = require('../aggregate.js').aggregate([
+        { _id: 'a', start: start + 3600000, end: start + 7200000, type: 'desktop', nodeid: 'n', nodename: 'Demo' }
+    ], { start, end, bucket: 'day', tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    const sessions = { rows: [{ node: 'Demo', user: 'admin', start: start + 3600000, end: start + 7200000, type: 'desktop', ip: '10.0.0.9', bytesin: 1, bytesout: 1 }], total: 1 };
+    const days = { group: 'day', total: 1, skip: 0, rows: [{ s: start, e: start + 86400000, count: 2, ongoing: 0, seconds: 5400, active: 0, seenSeconds: 0,
+        by: { desktop: 3600, terminal: 1800 }, bytesin: 2048, bytesout: 0, devices: ['Demo', 'Other'], groups: ['G'], users: ['admin'] }] };
+    const storage = new Map([['cs-cols', '["ip"]']]);
+    const boot = () => dashboard({ width: 1200, storage, hash: '#preset=custom&start=' + start + '&end=' + end + '&bucket=day',
+        response: url => { urls.push(url); return url.includes('api=meta') ? { devices: [], groups: [], users: [] } : url.includes('api=sessions') ? (url.includes('group=day') ? days : sessions) : { aggregate, sessions }; } });
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    let d = boot(); await tick(); await tick();
+    const head = () => [...d.root.innerHTML.split('<thead>')[1].split('</thead>')[0].matchAll(/<th[^>]*>([^<]+)<\/th>/g)].map(m => m[1]);
+    assert.deepEqual(head(), ['Start', 'Duration', 'Active', 'Type', 'Device', 'Group', 'Admin', 'Received', 'Sent']);
+    assert.doesNotMatch(d.root.innerHTML, /10\.0\.0\.9/);
+    // hide a column from the menu
+    const el = (data, cls) => { const e = { dataset: data, classList: { contains: n => n == cls } }; e.closest = sel => (sel == '[data-act]' && data.act) || (sel == '[data-group]' && data.group != null) ? e : null; return e; };
+    d.handlers.click({ target: el({ act: 'colmenu' }) });
+    assert.match(d.root.innerHTML, /data-col="admin" checked/);
+    d.handlers.change({ target: { dataset: { col: 'admin' } } });
+    assert.ok(!head().includes('Admin'));
+    assert.equal(storage.get('cs-cols'), '["ip","admin"]');
+    // by day
+    d.handlers.click({ target: el({ group: 'day' }) });
+    await tick(); await tick();
+    assert.match(urls.filter(u => u.includes('api=sessions')).pop(), /group=day/);
+    assert.equal(storage.get('cs-group'), 'day');
+    assert.deepEqual(head(), ['Day', 'Sessions', 'Connected', 'Active', 'Types', 'Devices', 'Groups', 'Received', 'Sent']);
+    assert.match(d.root.innerHTML, /<td class="num">2<\/td><td class="num">1:30:00<\/td>/);
+    assert.match(d.root.innerHTML, /title="Demo, Other">2 devices/);
+    assert.match(d.root.innerHTML, /Showing 1 of 1 days/);
+    // height
+    d.handlers.change({ target: { dataset: { pick: 'tableh' }, value: '400' } });
+    assert.match(d.root.innerHTML, /class="cs-card cs-sess cs-fixh"/);
+    assert.match(d.root.innerHTML, /class="cs-tscroll cs-fixh" style="height:400px"/);
+    assert.equal(storage.get('cs-tableh:full'), '400');
+    // a new page load keeps all three
+    urls.length = 0; d = boot(); await tick(); await tick();
+    assert.ok(urls.some(u => u.includes('api=sessions') && u.includes('group=day')));
+    assert.deepEqual(head(), ['Day', 'Sessions', 'Connected', 'Active', 'Types', 'Devices', 'Groups', 'Received', 'Sent']);
+    assert.match(d.root.innerHTML, /style="height:400px"/);
+});

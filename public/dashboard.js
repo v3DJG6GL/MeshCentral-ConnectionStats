@@ -139,13 +139,18 @@
     var STATE_KEY = 'cs-filters:' + location.pathname + ':' + (BOOT.user || '') + ':' + (COMPACT ? 'device' : 'full');
     var S = {
         scope: BOOT.scope || 'all', types: {}, users: [], preset: 'week', start: 0, end: 0, bucket: 'auto',
-        compare: true, guests: false, sel: null, pc: null, skip: 0, limit: savedLimit()
+        compare: true, guests: false, sel: null, pc: null, skip: 0, limit: savedLimit(),
+        // session table options, per viewer: hidden columns, rows per day, height in pixels (0 = auto)
+        hidden: savedCols(), group: stored('cs-group') == 'day' ? 'day' : '', tableH: Math.max(0, Number(stored('cs-tableh:' + (COMPACT ? 'device' : 'full'))) || 0)
     };
     TYPES.forEach(function (t) { S.types[t.k] = true; });
-    var META = null, DATA = null, LIST = null, DAYLIST = null, SELTOT = null, ERR = null, LOADING = false, MENU = false;
+    var META = null, DATA = null, LIST = null, DAYLIST = null, SELTOT = null, ERR = null, LOADING = false, MENU = false, COLMENU = false;
     var root = document.getElementById('cs-root');
 
     function applyPreset() { var p = PRESET[S.preset]; if (p && p.range) { var r = p.range(); S.start = r[0]; S.end = r[1]; } }
+    function stored(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    function store(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+    function savedCols() { try { var v = JSON.parse(stored('cs-cols') || '[]'); return Array.isArray(v) ? v.filter(function (k) { return typeof k == 'string'; }) : []; } catch (e) { return []; } }
     function savedLimit() {
         var d = 10;
         try { var v = Number(localStorage.getItem('cs-limit')); return LIMITS.indexOf(v) >= 0 ? v : d; } catch (e) { return d; }
@@ -193,14 +198,17 @@
             return get(API + '&api=query&' + qs(qp));
         }).then(function (d) {
             DATA = d; LIST = d.sessions; S.skip = 0; S.sel = null; S.pc = null; DAYLIST = null;
+            var more = [];
+            if (S.group) more.push(get(API + '&api=sessions&' + qs(listParams(0))).then(function (l) { LIST = l; }));
             if (d.aggregate.bucket == 'hour') {
                 var lp = queryParams(); lp.limit = 500;
-                return get(API + '&api=sessions&' + qs(lp)).then(function (l) { DAYLIST = l.rows; });
+                more.push(get(API + '&api=sessions&' + qs(lp)).then(function (l) { DAYLIST = l.rows; }));
             }
+            return Promise.all(more);
         }).then(function () { LOADING = false; render(); }).catch(function (e) { LOADING = false; ERR = e.message || String(e); render(); });
     }
     function listParams(skip) {
-        var qp = queryParams(); qp.skip = skip; qp.limit = S.limit;
+        var qp = queryParams(); qp.skip = skip; qp.limit = S.limit; qp.group = S.group || null;
         if (S.sel) { var b = DATA.aggregate.buckets[S.sel.i]; qp.start = b.s; qp.end = b.e; if (S.sel.t) qp.types = S.sel.t; }
         if (S.pc) { qp.wd = S.pc.wd; qp.hour = S.pc.h; }
         return qp;
@@ -229,7 +237,7 @@
             if (S.sel && !d.aggregate.buckets[S.sel.i]) S.sel = null;
             var more = [];
             if (d.aggregate.bucket == 'hour') { var lp = queryParams(); lp.limit = 500; more.push(get(API + '&api=sessions&' + qs(lp)).then(function (l) { DAYLIST = l.rows; })); }
-            if (S.sel || S.pc || S.skip) more.push(get(API + '&api=sessions&' + qs(listParams(S.skip))).then(function (l) { LIST = l; }));
+            if (S.sel || S.pc || S.skip || S.group) more.push(get(API + '&api=sessions&' + qs(listParams(S.skip))).then(function (l) { LIST = l; }));
             if (S.sel) more.push(loadSelTotals());
             else LIST = d.sessions;
             return Promise.all(more);
@@ -420,19 +428,79 @@
         });
         return s + '</div>';
     }
+    // session table columns; the "by day" view sums the same things per day
+    var COLS = [
+        { k: 'start', n: 'Start', day: 'Day' },
+        { k: 'count', n: 'Sessions', num: 1, dayOnly: 1 },
+        { k: 'dur', n: 'Duration', day: 'Connected', num: 1 },
+        { k: 'active', n: 'Active', num: 1 },
+        { k: 'type', n: 'Type', day: 'Types' },
+        { k: 'device', n: 'Device', day: 'Devices' },
+        { k: 'group', n: 'Group', day: 'Groups', full: 1 },
+        { k: 'admin', n: 'Admin', day: 'Admins' },
+        { k: 'in', n: 'Received', num: 1 },
+        { k: 'out', n: 'Sent', num: 1 },
+        { k: 'ip', n: 'From', sessOnly: 1 }
+    ];
+    var HEIGHTS = [[0, 'Auto'], [240, 'Short'], [400, 'Medium'], [640, 'Tall'], [960, 'Very tall']];
+    function tableCols(byDay) { return COLS.filter(function (c) { return !(c.full && COMPACT) && !(byDay ? c.sessOnly : c.dayOnly); }); }
+    function shownCols(byDay) {
+        var all = tableCols(byDay), cols = all.filter(function (c) { return S.hidden.indexOf(c.k) < 0; });
+        return cols.length ? cols : all.slice(0, 1);
+    }
+    function names(list, noun) { return list.length == 1 ? esc(list[0]) : '<span title="' + esc(list.join(', ')) + '">' + list.length + ' ' + noun + 's</span>'; }
+    function sessionCell(k, x) {
+        var e = x.end == null ? Date.now() : x.end, t = TYPE[x.type] || TYPE.other;
+        if (k == 'start') return '<td>' + fmtDT(x.start) + '</td>';
+        if (k == 'dur') return '<td class="num">' + fmtDur((e - x.start) / 1000) + (x.end == null ? ', ongoing' : x.truncated ? ' <span title="The start or end of this session was not observed">*</span>' : '') + '</td>';
+        if (k == 'active') return activeCell(x);
+        if (k == 'type') return '<td><span class="ty" title="' + esc(protoName(x.protocol)) + '"><i style="background:' + t.c + '"></i>' + t.n + (x.type == 'other' ? ' <small class="dim">' + esc(protoName(x.protocol)) + '</small>' : '') + '</span></td>';
+        if (k == 'device') return '<td>' + esc(x.node) + '</td>';
+        if (k == 'group') return '<td>' + esc(x.group || '') + '</td>';
+        if (k == 'admin') return '<td>' + (x.guest ? 'Guest: ' + esc(x.guest) : esc(x.user)) + '</td>';
+        if (k == 'in') return '<td class="num">' + fmtBytes(x.bytesin) + '</td>';
+        if (k == 'out') return '<td class="num">' + fmtBytes(x.bytesout) + '</td>';
+        return '<td>' + esc(x.ip || '') + '</td>';
+    }
+    function dayCell(k, r) {
+        if (k == 'start') return '<td>' + DOW[new Date(r.s).getDay()] + ' ' + fmtDate(r.s) + '</td>';
+        if (k == 'count') return '<td class="num">' + r.count + (r.ongoing ? ' <small class="dim">' + r.ongoing + ' ongoing</small>' : '') + '</td>';
+        if (k == 'dur') return '<td class="num">' + fmtDur(r.seconds) + '</td>';
+        if (k == 'active') return r.seenSeconds ? '<td class="num">' + fmtDur(r.active) + '</td>' : '<td class="num dim" title="No session on this day had input data">no data</td>';
+        if (k == 'type') return '<td><span class="ty-list">' + TYPES.filter(function (t) { return r.by[t.k] != null; }).map(function (t) { return '<span class="ty" title="' + t.n + ', ' + fmtDur(r.by[t.k]) + '"><i style="background:' + t.c + '"></i>' + t.n + '</span>'; }).join('') + '</span></td>';
+        if (k == 'device') return '<td>' + names(r.devices, 'device') + '</td>';
+        if (k == 'group') return '<td>' + names(r.groups, 'group') + '</td>';
+        if (k == 'admin') return '<td>' + names(r.users, 'admin') + '</td>';
+        if (k == 'in') return '<td class="num">' + fmtBytes(r.bytesin) + '</td>';
+        return '<td class="num">' + fmtBytes(r.bytesout) + '</td>';
+    }
+    function tableOptions(byDay) {
+        var h = '<div class="cs-tbar"><span class="cs-seg" role="group" aria-label="Rows"><button data-group="" class="' + (S.group ? '' : 'on') + '" aria-pressed="' + !S.group + '">Sessions</button><button data-group="day" class="' + (S.group ? 'on' : '') + '" aria-pressed="' + !!S.group + '">By day</button></span>';
+        h += '<span class="cs-menu-wrap cs-colwrap"><button class="cs-btn" data-act="colmenu" aria-haspopup="true" aria-expanded="' + COLMENU + '">Columns and height</button>';
+        if (COLMENU) {
+            var custom = S.tableH && !HEIGHTS.some(function (x) { return x[0] == S.tableH; });
+            h += '<div class="cs-menu cs-colmenu"><div class="cs-menu-h">Columns</div>' + tableCols(byDay).map(function (c) {
+                return '<label><input type="checkbox" data-col="' + c.k + '"' + (S.hidden.indexOf(c.k) < 0 ? ' checked' : '') + '> ' + (byDay && c.day ? c.day : c.n) + '</label>';
+            }).join('') + '<hr><label class="cs-menu-h">Height <select class="cs-sel" data-pick="tableh" aria-label="Table height">' + HEIGHTS.map(function (x) {
+                return '<option value="' + x[0] + '"' + (S.tableH == x[0] ? ' selected' : '') + '>' + x[1] + '</option>';
+            }).join('') + (custom ? '<option value="' + S.tableH + '" selected>' + S.tableH + ' px</option>' : '') + '</select></label><small>or drag the table\'s lower right corner</small></div>';
+        }
+        return h + '</span></div>';
+    }
     function table(list) {
-        var rows = list.rows || [], n = list.total || 0, s = '<div class="cs-tscroll"><table class="cs-table"><thead><tr><th>Start</th><th class="num">Duration</th><th class="num">Active</th><th>Type</th><th>Device</th>' + (COMPACT ? '' : '<th>Group</th>') + '<th>Admin</th><th class="num">Received</th><th class="num">Sent</th><th>From</th></tr></thead><tbody>';
+        var rows = list.rows || [], n = list.total || 0, byDay = list.group == 'day', cols = shownCols(byDay);
+        var s = tableOptions(byDay) + '<div class="cs-tscroll' + (S.tableH ? ' cs-fixh" style="height:' + S.tableH + 'px' : '') + '"><table class="cs-table"><thead><tr>' + cols.map(function (c) { return '<th' + (c.num ? ' class="num"' : '') + '>' + (byDay && c.day ? c.day : c.n) + '</th>'; }).join('') + '</tr></thead><tbody>';
         rows.forEach(function (x) {
-            var e = x.end == null ? Date.now() : x.end, t = TYPE[x.type] || TYPE.other;
-            s += '<tr' + (x.end == null ? ' class="hl"' : '') + '><td>' + fmtDT(x.start) + '</td><td class="num">' + fmtDur((e - x.start) / 1000) + (x.end == null ? ', ongoing' : x.truncated ? ' <span title="The start or end of this session was not observed">*</span>' : '') + '</td>' + activeCell(x) + '<td><span class="ty" title="' + esc(protoName(x.protocol)) + '"><i style="background:' + t.c + '"></i>' + t.n + (x.type == 'other' ? ' <small class="dim">' + esc(protoName(x.protocol)) + '</small>' : '') + '</span></td><td>' + esc(x.node) + '</td>' + (COMPACT ? '' : '<td>' + esc(x.group || '') + '</td>') + '<td>' + (x.guest ? 'Guest: ' + esc(x.guest) : esc(x.user)) + '</td><td class="num">' + fmtBytes(x.bytesin) + '</td><td class="num">' + fmtBytes(x.bytesout) + '</td><td>' + esc(x.ip || '') + '</td></tr>';
+            s += '<tr' + ((byDay ? x.ongoing : x.end == null) ? ' class="hl"' : '') + '>' + cols.map(function (c) { return byDay ? dayCell(c.k, x) : sessionCell(c.k, x); }).join('') + '</tr>';
         });
-        if (!rows.length) s += '<tr><td colspan="10" class="dim">No sessions match.</td></tr>';
+        if (!rows.length) s += '<tr><td colspan="' + cols.length + '" class="dim">No sessions match.</td></tr>';
         s += '</tbody></table></div>';
         var pages = Math.max(1, Math.ceil(n / S.limit)), page = Math.floor(S.skip / S.limit) + 1;
-        var selTxt = S.sel ? 'Showing ' + (S.sel.t ? TYPE[S.sel.t].n + ' sessions' : 'all sessions') + ' in ' + esc(longLabel(DATA.aggregate.buckets[S.sel.i], DATA.aggregate.bucket)) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a>' + (S.sel.t ? ' <a href="#" data-act="alltypes">All types</a>' : '') + ' <a href="#" data-act="zoom">Zoom in</a>'
-            : S.pc ? 'Showing sessions that started ' + cellLabel(S.pc.wd, S.pc.h) + ', ' + n + ' of ' + DATA.sessions.total + '. <a href="#" data-act="clear">Clear</a>'
-            : 'Showing ' + Math.min(S.skip + rows.length, n) + ' of ' + n + ' sessions';
-        var sizes = '<label class="pp">Per page <select class="cs-sel" data-pick="limit" aria-label="Sessions per page">' + LIMITS.map(function (l) { return '<option value="' + l + '"' + (S.limit == l ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></label>';
+        var count = byDay ? ', ' + n + ' day' + (n == 1 ? '' : 's') : ', ' + n + ' of ' + DATA.sessions.total;
+        var selTxt = S.sel ? 'Showing ' + (S.sel.t ? TYPE[S.sel.t].n + ' sessions' : 'all sessions') + ' in ' + esc(longLabel(DATA.aggregate.buckets[S.sel.i], DATA.aggregate.bucket)) + count + '. <a href="#" data-act="clear">Clear</a>' + (S.sel.t ? ' <a href="#" data-act="alltypes">All types</a>' : '') + ' <a href="#" data-act="zoom">Zoom in</a>'
+            : S.pc ? 'Showing sessions that started ' + cellLabel(S.pc.wd, S.pc.h) + count + '. <a href="#" data-act="clear">Clear</a>'
+            : 'Showing ' + Math.min(S.skip + rows.length, n) + ' of ' + n + (byDay ? ' days' : ' sessions');
+        var sizes = '<label class="pp">Per page <select class="cs-sel" data-pick="limit" aria-label="' + (byDay ? 'Days' : 'Sessions') + ' per page">' + LIMITS.map(function (l) { return '<option value="' + l + '"' + (S.limit == l ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></label>';
         s += '<div class="cs-foot"><span>' + selTxt + '</span><span class="pg">' + sizes + '<button class="cs-btn" data-act="prev" ' + (page <= 1 ? 'disabled' : '') + '>&#8249;</button> Page ' + page + ' of ' + pages + ' <button class="cs-btn" data-act="next" ' + (page >= pages ? 'disabled' : '') + '>&#8250;</button></span></div>';
         return s;
     }
@@ -602,7 +670,7 @@
                 else if (!COMPACT) h += '<div class="cs-card"><h5>When you connect<span>by weekday and hour of start, click a bubble to filter the list</span></h5>' + punchcard(a.punchcard, S.pc) + '</div>';
             }
             var selTot = S.sel && SELTOT && SELTOT.key == selKey() ? '<div class="cs-sel-tot"><div class="cs-note">Totals for ' + esc(longLabel(a.buckets[S.sel.i], a.bucket)) + ', ' + (S.sel.t ? esc(TYPE[S.sel.t].n) : 'all shown types') + '</div>' + kpis(SELTOT.totals, null) + '</div>' : '';
-            h += '<div class="cs-card cs-sess"><h5>Sessions' + (t.ongoing ? '<span class="cs-live">' + t.ongoing + ' ongoing, counted up to now</span>' : '') + '</h5>' + selTot + table(LIST || { rows: [], total: 0 }) + '</div>';
+            h += '<div class="cs-card cs-sess' + (S.tableH ? ' cs-fixh' : '') + '"><h5>Sessions' + (t.ongoing ? '<span class="cs-live">' + t.ongoing + ' ongoing, counted up to now</span>' : '') + '</h5>' + selTot + table(LIST || { rows: [], total: 0 }) + '</div>';
             h += '<div class="cs-note">* start or end not observed (server restart). Active time is measured from your input in the Desktop, Terminal and Files views; sessions from other clients show no data.</div>';
         }
         lastW = root.clientWidth;
@@ -745,11 +813,14 @@
         if (act == 'zoom') { ev.preventDefault(); if (S.sel) { var b = DATA.aggregate.buckets[S.sel.i]; S.start = b.s; S.end = b.e; S.preset = 'custom'; S.bucket = 'auto'; load(); } return; }
         if (act == 'prev') { loadList(Math.max(0, S.skip - S.limit)); return; }
         if (act == 'next') { loadList(S.skip + S.limit); return; }
-        if (act == 'menu') { MENU = !MENU; render(); return; }
+        if (act == 'menu') { MENU = !MENU; COLMENU = false; render(); return; }
+        if (act == 'colmenu') { COLMENU = !COLMENU; MENU = false; render(); return; }
+        if ((el = t.closest('[data-group]'))) { if (S.group != el.dataset.group) { S.group = el.dataset.group; store('cs-group', S.group); loadList(0); } return; }
         if (act == 'print') { MENU = false; render(); setTimeout(function () { window.print(); }, 50); return; }
         if (act == 'copylink') { MENU = false; render(); var url = location.href; try { navigator.clipboard.writeText(url); } catch (e) { window.prompt('Copy this link', url); } return; }
         if (act && window.CS_EXPORT && window.CS_EXPORT[act]) { MENU = false; render(); window.CS_EXPORT[act](); return; }
         if (MENU && !t.closest('.cs-menu-wrap')) { MENU = false; render(); }
+        if (COLMENU && !t.closest('.cs-colwrap')) { COLMENU = false; render(); }
     });
     root.addEventListener('change', function (ev) {
         var t = ev.target;
@@ -757,10 +828,25 @@
         else if (t.dataset.pick == 'node') { S.scope = 'node:' + t.value; load(); }
         else if (t.dataset.pick == 'user') { S.users = t.value ? [t.value] : []; load(); }
         else if (t.dataset.pick == 'bucket') { S.bucket = t.value; load(); }
+        else if (t.dataset.col) {
+            var k = t.dataset.col, at = S.hidden.indexOf(k);
+            if (at >= 0) S.hidden.splice(at, 1); else S.hidden.push(k);
+            // never hide the last column of the current view
+            if (tableCols(LIST && LIST.group == 'day').every(function (c) { return S.hidden.indexOf(c.k) >= 0; })) S.hidden.pop();
+            store('cs-cols', JSON.stringify(S.hidden)); render();
+        }
+        else if (t.dataset.pick == 'tableh') { setTableH(Number(t.value)); }
         else if (t.dataset.pick == 'limit') { S.limit = Number(t.value); try { localStorage.setItem('cs-limit', t.value); } catch (e) { } loadList(0); }
     });
     root.addEventListener('input', function (ev) {
         if (ev.target.dataset.date) root.querySelectorAll('[data-date]').forEach(function (t) { t.setCustomValidity(''); });
+    });
+    function setTableH(h) { S.tableH = Math.max(0, Math.round(h) || 0); store('cs-tableh:' + (COMPACT ? 'device' : 'full'), String(S.tableH)); render(); }
+    // dragging the table's corner sets an inline height; keep it as the chosen height
+    document.addEventListener('pointerup', function () {
+        var ts = root.querySelector && root.querySelector('.cs-sess .cs-tscroll');
+        var h = ts && ts.style.height ? parseInt(ts.style.height, 10) : 0;
+        if (h && h != S.tableH) setTableH(Math.max(120, h));
     });
     function applyDates() {
         var inputs = root.querySelectorAll('[data-date]'), dates = {};
@@ -779,7 +865,7 @@
     }
     root.addEventListener('keydown', function (ev) {
         if (ev.key == 'Enter' && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); ev.target.blur(); applyDates(); return; }
-        if (ev.key == 'Escape') { hideChartTip(); if (MENU) { MENU = false; render(); } else if (S.sel || S.pc) { S.sel = null; S.pc = null; loadList(0); } }
+        if (ev.key == 'Escape') { hideChartTip(); if (MENU || COLMENU) { MENU = false; COLMENU = false; render(); } else if (S.sel || S.pc) { S.sel = null; S.pc = null; loadList(0); } }
         if ((ev.key == 'Enter' || ev.key == ' ') && ev.target.classList && (ev.target.classList.contains('bar') || ev.target.classList.contains('cs-bucket') || ev.target.classList.contains('pc'))) { ev.preventDefault(); ev.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
     });
     window.addEventListener('hashchange', function () { readHash(); if (S.preset != 'custom') applyPreset(); load(); });

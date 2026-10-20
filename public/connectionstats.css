@@ -99,10 +99,22 @@ button { font: inherit; }
 .cs-tscroll { overflow-x: auto; }
 /* on the admin page the dashboard fills the frame; when space runs out the session table scrolls inside its card */
 .cs-full { height: calc(100vh - 16px); box-sizing: border-box; overflow: auto; }
-.cs-full .cs-sess { flex: 1 1 auto; min-height: 230px; }
-.cs-full .cs-sess:has(.cs-sel-tot) { min-height: 310px; }
+.cs-full .cs-sess { flex: 1 1 auto; min-height: 262px; }
+.cs-full .cs-sess:has(.cs-sel-tot) { min-height: 342px; }
 .cs-full .cs-sess > :not(.cs-tscroll) { flex: 0 0 auto; }
 .cs-full .cs-sess .cs-tscroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* the session table can be dragged taller or shorter; a chosen height replaces the automatic one */
+.cs-sess .cs-tscroll { resize: vertical; overflow: auto; min-height: 60px; }
+.cs-full .cs-sess.cs-fixh { flex: none; min-height: 0; }
+.cs-full .cs-sess .cs-tscroll.cs-fixh { flex: none; }
+.cs-tbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cs-colmenu { width: 220px; padding: 6px 0; }
+.cs-colmenu label { display: flex; align-items: center; gap: 6px; padding: 3px 12px; cursor: pointer; }
+.cs-colmenu label:hover { background: var(--on); }
+.cs-colmenu .cs-menu-h { color: var(--m); padding: 2px 12px; }
+.cs-colmenu label.cs-menu-h { color: var(--t); justify-content: space-between; }
+.cs-colmenu small { padding: 0 12px; }
+.cs-table .ty-list { display: inline-flex; gap: 10px; }
 .cs-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .cs-table th { color: var(--m); font-weight: normal; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--r); white-space: nowrap; }
 .cs-table td { padding: 4px 6px; border-bottom: 1px solid var(--r2); white-space: nowrap; }
@@ -142,7 +154,8 @@ a.cs-btn { text-decoration: none; display: inline-block; }
 @media print {
   body { background: #fff; padding: 0; }
   .cs { border: 0; }
-  .cs-bar, .cs-foot .pg, .cs-menu { display: none !important; }
+  .cs-bar, .cs-foot .pg, .cs-menu, .cs-tbar { display: none !important; }
+  .cs-sess .cs-tscroll { height: auto !important; resize: none; }
   .cs .bar, .cs .pc { cursor: default; }
 }
 
