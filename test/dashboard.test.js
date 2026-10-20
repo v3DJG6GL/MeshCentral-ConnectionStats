@@ -347,3 +347,39 @@ test('standalone launch hint preserves host theme even when storage is unavailab
         assert.equal(applied, night);
     }
 });
+
+test('a column selects every shown type of its bucket and the selection shows its own totals', async () => {
+    const start = new Date(2023, 11, 1).getTime(), end = new Date(2023, 11, 3).getTime(), urls = [];
+    const aggregate = require('../aggregate.js').aggregate([
+        { _id: 'a', start: start + 3600000, end: start + 7200000, type: 'desktop', nodeid: 'n', nodename: 'Demo' },
+        { _id: 'b', start: start + 3600000, end: start + 5400000, type: 'terminal', nodeid: 'n', nodename: 'Demo' }
+    ], { start, end, bucket: 'day', tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    const sessions = { rows: [], total: 2 };
+    const selTotals = { seconds: 5400, active: 0, seenSeconds: 0, count: 2, ongoing: 0, median: 2700, longest: 3600, devices: 1 };
+    const d = dashboard({ width: 1200, hash: '#preset=custom&start=' + start + '&end=' + end + '&bucket=day&types=desktop,terminal',
+        response: url => { urls.push(url); return url.includes('api=meta') ? { devices: [], groups: [], users: [] } : url.includes('api=sessions') ? sessions
+            : url.includes('limit=1&') || /limit=1$/.test(url) ? { aggregate: { totals: selTotals } } : { aggregate, sessions }; } });
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    await tick();
+    const column = { dataset: { i: '0' }, classList: { contains: n => n == 'cs-bucket' } };
+    column.closest = () => null;
+    d.handlers.click({ target: column });
+    await tick(); await tick();
+    assert.deepEqual({ ...d.cs.state.sel }, { i: 0, t: null });
+    const list = urls.find(u => u.includes('api=sessions')), totals = urls.filter(u => u.includes('api=query')).pop();
+    assert.match(list, /types=desktop%2Cterminal/);
+    assert.match(totals, /compare=0/); assert.match(totals, /types=desktop%2Cterminal/);
+    assert.match(d.root.innerHTML, /class="cs-bucket on" data-i="0"/);
+    assert.doesNotMatch(d.root.innerHTML, /class="bar dim" data-i="0"/);
+    assert.match(d.root.innerHTML, /Totals for [^<]+, all shown types/);
+    assert.match(d.root.innerHTML, /cs-sel-tot.*Connected time<\/div><div class="v">1:30:00/);
+    assert.match(d.root.innerHTML, /Showing all sessions in /);
+    // a segment narrows to one type and offers the way back to all types
+    const bar = { dataset: { i: '0', t: 'desktop' }, classList: { contains: n => n == 'bar' } };
+    bar.closest = () => null;
+    d.handlers.click({ target: bar });
+    await tick(); await tick();
+    assert.equal(d.cs.state.sel.t, 'desktop');
+    assert.match(urls.filter(u => u.includes('api=sessions')).pop(), /types=desktop(&|$)/);
+    assert.match(d.root.innerHTML, /data-act="alltypes"/);
+});

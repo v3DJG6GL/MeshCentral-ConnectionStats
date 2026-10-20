@@ -43,6 +43,8 @@ button { font: inherit; }
 .cs-kpi .d { font-size: 11px; color: var(--m); display: block; }
 .cs-kpi .d.up { color: var(--good); }
 .cs-kpi .d.dn { color: var(--bad); }
+.cs-sel-tot .cs-kpis { border-bottom: 0; }
+.cs-sel-tot .cs-kpi .v { font-size: 16px; }
 .cs-grid { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(220px, 1fr); gap: 12px; }
 .cs-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .cs-card { border: 1px solid var(--r2); border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -98,6 +100,7 @@ button { font: inherit; }
 /* on the admin page the dashboard fills the frame; when space runs out the session table scrolls inside its card */
 .cs-full { height: calc(100vh - 16px); box-sizing: border-box; overflow: auto; }
 .cs-full .cs-sess { flex: 1 1 auto; min-height: 230px; }
+.cs-full .cs-sess:has(.cs-sel-tot) { min-height: 310px; }
 .cs-full .cs-sess > :not(.cs-tscroll) { flex: 0 0 auto; }
 .cs-full .cs-sess .cs-tscroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .cs-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
@@ -149,7 +152,8 @@ a.cs-btn { text-decoration: none; display: inline-block; }
 .cs-tl .hrs .cs-tl-year { top: 0; font-weight: bold; }
 .cs-tl .cs-session:hover, .cs-tl .cs-session:focus-visible { filter: brightness(1.2); outline: 2px solid var(--t); outline-offset: 1px; }
 
-.cs .cs-bucket:hover, .cs .cs-bucket:focus-visible, .cs .pc:hover .cs-pc-hit, .cs .pc:focus-visible .cs-pc-hit { fill: var(--hi); stroke: var(--axis); stroke-width: 1; outline: none; }
+.cs .cs-bucket { cursor: pointer; }
+.cs .cs-bucket.on, .cs .cs-bucket:hover, .cs .cs-bucket:focus-visible, .cs .pc:hover .cs-pc-hit, .cs .pc:focus-visible .cs-pc-hit { fill: var(--hi); stroke: var(--axis); stroke-width: 1; outline: none; }
 
 .cs-tl .cs-track:hover, .cs-tl .cs-track:focus-visible { outline: 1px solid var(--axis); }
 

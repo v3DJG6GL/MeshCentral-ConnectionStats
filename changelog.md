@@ -1,3 +1,9 @@
+## 0.5.1 — 2026-10-20
+
+- Device tab: fit the frame to the visible space in MeshCentral's fullscreen layout, which never scrolls, so long session lists can be scrolled to the end.
+- Click the space above a bar to filter the list by the whole bucket across all shown connection types; a segment still selects one type, with an "All types" link back.
+- Show the totals of the selected bar or column (connected and active time, sessions, median, longest) above the filtered session list.
+
 ## 0.5.0 — 2026-09-08
 
 - Persist measured active intervals across all stores and merge same-destination activity across devices/types without double-counting or filling idle gaps.

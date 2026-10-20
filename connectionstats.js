@@ -40,6 +40,7 @@ module.exports.connectionstats = function (parent) {
         'csTabUrl',
         'csEnsureTab',
         'csOnMessage',
+        'csFitFrame',
         'csActivityInit',
         'csKimaiInit',
         'csKindOf',
@@ -54,6 +55,7 @@ module.exports.connectionstats = function (parent) {
         try {
             if (window.__csStarted) return; window.__csStarted = true;
             window.addEventListener('message', function (ev) { pluginHandler.connectionstats.csOnMessage(ev); });
+            window.addEventListener('resize', function () { pluginHandler.connectionstats.csFitFrame(); });
             var mo = new MutationObserver(function () {
                 var f = document.getElementById('csDeviceFrame');
                 if (f && f.contentWindow) { try { f.contentWindow.postMessage({ cs: 'night', night: pluginHandler.connectionstats.csNight() }, '*'); } catch (e) { } }
@@ -165,7 +167,28 @@ module.exports.connectionstats = function (parent) {
         var d = ev.data;
         if (d == null || d.cs != 'height') return;
         var f = document.getElementById('csDeviceFrame');
-        if (f && f.contentWindow === ev.source) f.style.height = Math.max(300, Math.min(6000, Number(d.h))) + 'px';
+        if (f && f.contentWindow === ev.source) { f.setAttribute('data-h', Number(d.h) || 0); pluginHandler.connectionstats.csFitFrame(); }
+    };
+
+    // MeshCentral's fullscreen layout clips its content column (overflow: hidden), so a frame
+    // taller than the visible space could never be scrolled to its end. There the frame is cut to
+    // what is visible and the page scrolls inside it.
+    obj.csFitFrame = function () {
+        var f = document.getElementById('csDeviceFrame');
+        if (f == null) return;
+        var h = Math.max(300, Math.min(6000, Number(f.getAttribute('data-h')) || 900));
+        try {
+            for (var e = f.parentElement; e != null && e != document.body; e = e.parentElement) {
+                var ov = getComputedStyle(e).overflowY;
+                if (ov == 'auto' || ov == 'scroll') break;
+                if (ov == 'hidden' || ov == 'clip') {
+                    var room = e.getBoundingClientRect().top + e.clientTop + e.clientHeight - f.getBoundingClientRect().top - 8;
+                    if (room >= 300) h = Math.min(h, room);
+                    break;
+                }
+            }
+        } catch (ex) { }
+        f.style.height = h + 'px';
     };
 
     // MeshCentral wipes the plugin tab area before every device refresh, so the tab is registered
